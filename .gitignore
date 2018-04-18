@@ -1,4 +1,5 @@
 # ignore all pyc files.
 *.pyc
 *.swp
-*.txt
+.idea/
+*.xml

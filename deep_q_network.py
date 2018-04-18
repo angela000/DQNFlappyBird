@@ -10,7 +10,7 @@ import random
 import numpy as np
 from collections import deque
 
-import pdb
+# import pdb
 
 GAME = 'bird'  # the name of the game being played for log files
 ACTIONS = 2  # number of valid actions
@@ -21,7 +21,7 @@ OBSERVE = 10000.  # timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
-INITIAL_EPSILON = 0.1  # starting value of epsilon
+INITIAL_EPSILON = 0.0001  # starting value of epsilon
 REPLAY_MEMORY = 50000  # number of previous transitions to remember
 
 
@@ -88,29 +88,12 @@ def trainNetwork(s, readout, h_fc1, sess):
     # readout_action -- reward of selected action by a.
     cost = tf.reduce_mean(tf.square(y - readout_action))
     train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
-    # train_step.run(feed_dict={y: y_batch, a: a_batch, s: s_j_batch})
-
-    # # tf.reduce_sum(...;reduction_indices: The old (deprecated) name for axis;...)
-    # x = tf.constant([[1, 1, 1], [1, 1, 1]])
-    # tf.reduce_sum(x)  # 6
-    # tf.reduce_sum(x, 0)  # [2, 2, 2]
-    # tf.reduce_sum(x, 1)  # [3, 3]
-    # tf.reduce_sum(x, 1, keepdims=True)  # [[3], [3]]
-    # tf.reduce_sum(x, [0, 1])  # 6
-
-    # # tf.reduce_mean()
-    # x = tf.constant([[1., 1.], [2., 2.]])
-    # tf.reduce_mean(x)  # 1.5
-    # tf.reduce_mean(x, 0)  # [1.5, 1.5]
-    # tf.reduce_mean(x, 1)  # [1.,  2.]
 
     # open up a game state to communicate with emulator
     game_state = game.GameState()
 
     # store the previous observations in replay memory
     D = deque()
-    # deque is a double-ended queue, or deque, supports adding and removing elements from either end.
-    # More about deque, refer to https://www.jianshu.com/p/6928e420edb0
 
     # printing
     a_file = open("logs_" + GAME + "/readout.txt", 'w')
@@ -127,8 +110,6 @@ def trainNetwork(s, readout, h_fc1, sess):
     # Converts an image from one color space to another.
     # The conversion from a RGB image to gray is done with:
     x_t = cv2.cvtColor(cv2.resize(x_t, (80, 80)), cv2.COLOR_BGR2GRAY)
-    # The custom threshold is 1, which is greater than 1 is white and black is less than 1.
-    # refer to: http://blog.csdn.net/u011321546/article/details/79593195
     ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
     s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)  # s_t 80x80x4
 
@@ -149,9 +130,6 @@ def trainNetwork(s, readout, h_fc1, sess):
     while "flappy bird" != "angry bird":  # A no-stop circulation.
         # choose an action epsilon greedily
         readout_t = readout.eval(feed_dict={s: [s_t]})[0]
-        # e.g. readout.eval(feed_dict={s: [s_t]}) -- array([[11.83..., 11.62...]], dtype=float32)
-        # e.g. readout_t -- array([11.83..., 11.62...], dtype=float32)
-        # readout_t means two actions's assumed reward.
         a_t = np.zeros([ACTIONS])
         # e.g. a_t -- array([0., 0.], dtype=float32)
         action_index = 0
@@ -168,9 +146,6 @@ def trainNetwork(s, readout, h_fc1, sess):
             a_t[0] = 1  # do nothing
 
         # scale down epsilon
-        # OBSERVE -- 100000
-        # EXPLORE -- 2000000
-        # INITIAL_EPSILON = FINAL_EPSILON = 0.0001
         if epsilon > FINAL_EPSILON and t > OBSERVE:
             epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
 
