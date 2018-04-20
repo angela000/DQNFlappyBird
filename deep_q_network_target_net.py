@@ -5,13 +5,16 @@ import tensorflow as tf
 import cv2
 import sys
 sys.path.append("game/")
-import game.wrapped_flappy_bird as game
+import wrapped_flappy_bird as game
 import random
 import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
 from collections import deque
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # import pdb
 
