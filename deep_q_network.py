@@ -17,7 +17,7 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 1000.  # 10000 timesteps to observe before training
+OBSERVE = 10000.  # 10000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon

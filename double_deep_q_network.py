@@ -17,7 +17,7 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 1000.  # 10000 timesteps to observe before training
+OBSERVE = 10000.  # 10000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
@@ -221,7 +221,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         t += 1
 
         # save progress every 10000 iterations
-        if t % 10000 == 0:
+        if t % 5000 == 0:
             saver.save(sess, 'saved_networks/' + GAME + '-dqn', global_step=t)
 
         # print info
@@ -244,13 +244,13 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
 def store_parameters():
     saver = tf.train.Saver()
-    # checkpoint = tf.train.get_checkpoint_state("saved_networks")
-    # if checkpoint and checkpoint.model_checkpoint_path:
-    #     saver.restore(sess, checkpoint.model_checkpoint_path)
-    #     print("Successfully loaded:", checkpoint.model_checkpoint_path)
-    # else:
-    #     # Re-train the network from zero.
-    #     print("Could not find old network weights")
+    checkpoint = tf.train.get_checkpoint_state("saved_networks")
+    if checkpoint and checkpoint.model_checkpoint_path:
+        saver.restore(sess, checkpoint.model_checkpoint_path)
+        print("Successfully loaded:", checkpoint.model_checkpoint_path)
+    else:
+        # Re-train the network from zero.
+        print("Could not find old network weights")
 
     return saver
 

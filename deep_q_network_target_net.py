@@ -213,7 +213,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         t += 1
 
         # save progress every 10000 iterations
-        if t % 10000 == 0:
+        if t % 5000 == 0:
             saver.save(sess, 'saved_networks/' + GAME + '-dqn', global_step=t)
 
         # print info
@@ -236,13 +236,13 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
 def store_parameters():
     saver = tf.train.Saver()
-    # checkpoint = tf.train.get_checkpoint_state("saved_networks")
-    # if checkpoint and checkpoint.model_checkpoint_path:
-    #     saver.restore(sess, checkpoint.model_checkpoint_path)
-    #     print("Successfully loaded:", checkpoint.model_checkpoint_path)
-    # else:
-    #     # Re-train the network from zero.
-    #     print("Could not find old network weights")
+    checkpoint = tf.train.get_checkpoint_state("saved_networks")
+    if checkpoint and checkpoint.model_checkpoint_path:
+        saver.restore(sess, checkpoint.model_checkpoint_path)
+        print("Successfully loaded:", checkpoint.model_checkpoint_path)
+    else:
+        # Re-train the network from zero.
+        print("Could not find old network weights")
 
     return saver
 
