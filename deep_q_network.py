@@ -17,7 +17,7 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 10000.  # timesteps to observe before training
+OBSERVE = 1000.  # 10000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
@@ -95,16 +95,10 @@ def trainNetwork(s, readout, h_fc1, sess):
     ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
     s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)  # s_t 80x80x4
 
-    # saving and loading networks
-    saver = tf.train.Saver()
     sess.run(tf.initialize_all_variables())
-    checkpoint = tf.train.get_checkpoint_state("saved_networks")
-    if checkpoint and checkpoint.model_checkpoint_path:
-        saver.restore(sess, checkpoint.model_checkpoint_path)
-        print("Successfully loaded:", checkpoint.model_checkpoint_path)
-    else:
-        # Re-train the network from zero.
-        print("Could not find old network weights")
+
+    # saving and loading networks
+    saver = func_store()
 
     # tensorboard
     tf.summary.FileWriter("./logs_bird/", sess.graph)
@@ -140,6 +134,7 @@ def trainNetwork(s, readout, h_fc1, sess):
         # preprocess the image.
         x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
         ret, x_t1 = cv2.threshold(x_t1, 1, 255, cv2.THRESH_BINARY)
+        # s_t1 = np.stack((x_t1, x_t1, x_t1, x_t1), axis=2)
         x_t1 = np.reshape(x_t1, (80, 80, 1))
         s_t1 = np.append(x_t1, s_t[:, :, :3], axis=2)  # (80x80x4)
 
@@ -204,6 +199,19 @@ def trainNetwork(s, readout, h_fc1, sess):
             a_file.write(",".join([str(x) for x in readout_t]) + '\n')
             h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s: [s_t]})[0]]) + '\n')
             cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
+
+
+def func_store():
+    saver = tf.train.Saver()
+    checkpoint = tf.train.get_checkpoint_state("saved_networks")
+    if checkpoint and checkpoint.model_checkpoint_path:
+        saver.restore(sess, checkpoint.model_checkpoint_path)
+        print("Successfully loaded:", checkpoint.model_checkpoint_path)
+    else:
+        # Re-train the network from zero.
+        print("Could not find old network weights")
+
+    return saver
 
 
 if __name__ == "__main__":

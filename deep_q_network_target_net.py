@@ -17,53 +17,96 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 10000.  # timesteps to observe before training
+OBSERVE = 10000.  # 10000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
 INITIAL_EPSILON = 0.0001  # starting value of epsilon
 REPLAY_MEMORY = 50000  # number of previous transitions to remember
+REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
 
 
 def createNetwork():
     # input layer
-    s = tf.placeholder("float", [None, 80, 80, 4])
-    # conv layer 1
-    W_conv1 = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01))
-    b_conv1 = tf.Variable(tf.constant(0.01, shape=[32]))
+    with tf.variable_scope("eval_net"):
+        eval_net_input = tf.placeholder("float", [None, 80, 80, 4])
+        # conv layer 1
+        W_conv1_e = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01))
+        b_conv1_e = tf.Variable(tf.constant(0.01, shape=[32]))
 
-    h_conv1 = tf.nn.conv2d(s, W_conv1, strides=[1, 4, 4, 1], padding="SAME")
-    h_relu1 = tf.nn.relu(h_conv1 + b_conv1)  # [None, 20, 20, 32]
-    h_pool1 = tf.nn.max_pool(h_relu1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
-    # [None, 10, 10, 32]
-    # conv layer 2
-    W_conv2 = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
-    b_conv2 = tf.Variable(tf.constant(0.01, shape=[64]))
+        h_conv1_e = tf.nn.conv2d(eval_net_input, W_conv1_e, strides=[1, 4, 4, 1], padding="SAME")
+        h_relu1_e = tf.nn.relu(h_conv1_e + b_conv1_e)  # [None, 20, 20, 32]
+        h_pool1_e = tf.nn.max_pool(h_relu1_e, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
+        # [None, 10, 10, 32]
+        # conv layer 2
+        W_conv2_e = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
+        b_conv2_e = tf.Variable(tf.constant(0.01, shape=[64]))
 
-    h_conv2 = tf.nn.conv2d(h_pool1, W_conv2, strides=[1, 2, 2, 1], padding="SAME")
-    h_relu2 = tf.nn.relu(h_conv2 + b_conv2)  # [None, 5, 5, 64]
-    # conv layer 3
-    W_conv3 = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01))
-    b_conv3 = tf.Variable(tf.constant(0.01, shape=[64]))
+        h_conv2_e = tf.nn.conv2d(h_pool1_e, W_conv2_e, strides=[1, 2, 2, 1], padding="SAME")
+        h_relu2_e = tf.nn.relu(h_conv2_e + b_conv2_e)  # [None, 5, 5, 64]
+        # conv layer 3
+        W_conv3_e = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01))
+        b_conv3_e = tf.Variable(tf.constant(0.01, shape=[64]))
 
-    h_conv3 = tf.nn.conv2d(h_relu2, W_conv3, strides=[1, 1, 1, 1], padding="SAME")
-    h_relu3 = tf.nn.relu(h_conv3 + b_conv3)  # [None, 5, 5, 64]
-    # full layer
-    W_fc1 = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01))
-    b_fc1 = tf.Variable(tf.constant(0.01, shape=[512]))
+        h_conv3_e = tf.nn.conv2d(h_relu2_e, W_conv3_e, strides=[1, 1, 1, 1], padding="SAME")
+        h_relu3_e = tf.nn.relu(h_conv3_e + b_conv3_e)  # [None, 5, 5, 64]
+        # full layer
+        W_fc1_e = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01))
+        b_fc1_e = tf.Variable(tf.constant(0.01, shape=[512]))
 
-    h_conv3_flat = tf.reshape(h_relu3, [-1, 1600])  # [None, 1600]
-    h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, W_fc1) + b_fc1)  # [None, 512]
-    # reader layer 1
-    W_fc2 = tf.Variable(tf.truncated_normal([512, ACTIONS], stddev=0.01))
-    b_fc2 = tf.Variable(tf.constant(0.01, shape=[ACTIONS]))
+        h_conv3_flat_e = tf.reshape(h_relu3_e, [-1, 1600])  # [None, 1600]
+        h_fc1_e = tf.nn.relu(tf.matmul(h_conv3_flat_e, W_fc1_e) + b_fc1_e)  # [None, 512]
+        # reader layer 1
+        W_fc2_e = tf.Variable(tf.truncated_normal([512, ACTIONS], stddev=0.01))
+        b_fc2_e = tf.Variable(tf.constant(0.01, shape=[ACTIONS]))
 
-    readout = tf.matmul(h_fc1, W_fc2) + b_fc2  # [None, 2]
+        readout_e = tf.matmul(h_fc1_e, W_fc2_e) + b_fc2_e  # [None, 2]
 
-    return s, readout, h_fc1
+    with tf.variable_scope("target_net"):
+        target_net_input = tf.placeholder("float", [None, 80, 80, 4])
+        # conv layer 1
+        W_conv1_t = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01), trainable=False)
+        b_conv1_t = tf.Variable(tf.constant(0.01, shape=[32]), trainable=False)
+
+        h_conv1_t = tf.nn.conv2d(target_net_input, W_conv1_t, strides=[1, 4, 4, 1], padding="SAME")
+        h_relu1_t = tf.nn.relu(h_conv1_t + b_conv1_t)  # [None, 20, 20, 32]
+        h_pool1_t = tf.nn.max_pool(h_relu1_t, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
+        # [None, 10, 10, 32]
+        # conv layer 2
+        W_conv2_t = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01), trainable=False)
+        b_conv2_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
+
+        h_conv2_t = tf.nn.conv2d(h_pool1_t, W_conv2_t, strides=[1, 2, 2, 1], padding="SAME")
+        h_relu2_t = tf.nn.relu(h_conv2_t + b_conv2_t)  # [None, 5, 5, 64]
+        # conv layer 3
+        W_conv3_t = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01), trainable=False)
+        b_conv3_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
+
+        h_conv3_t = tf.nn.conv2d(h_relu2_t, W_conv3_t, strides=[1, 1, 1, 1], padding="SAME")
+        h_relu3_t = tf.nn.relu(h_conv3_t + b_conv3_t)  # [None, 5, 5, 64]
+        # full layer
+        W_fc1_t = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01), trainable=False)
+        b_fc1_t = tf.Variable(tf.constant(0.01, shape=[512]), trainable=False)
+
+        h_conv3_flat_t = tf.reshape(h_relu3_t, [-1, 1600])  # [None, 1600]
+        h_fc1_t = tf.nn.relu(tf.matmul(h_conv3_flat_t, W_fc1_t) + b_fc1_t)  # [None, 512]
+        # reader layer 1
+        W_fc2_t = tf.Variable(tf.truncated_normal([512, ACTIONS], stddev=0.01), trainable=False)
+        b_fc2_t = tf.Variable(tf.constant(0.01, shape=[ACTIONS]), trainable=False)
+
+        readout_t = tf.matmul(h_fc1_t, W_fc2_t) + b_fc2_t  # [None, 2]
+
+    return eval_net_input, target_net_input, readout_e, readout_t, h_fc1_e, h_fc1_t
 
 
-def trainNetwork(s, readout, h_fc1, sess):
+def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target, h_fc1_eval, h_fc1_target, sess):
+    # parameter transfer
+    t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_net')
+    e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='eval_net')
+
+    with tf.variable_scope('soft_replacement'):
+        target_replace_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
+
     # store the previous observations in replay memory
     D = deque()
 
@@ -73,11 +116,11 @@ def trainNetwork(s, readout, h_fc1, sess):
 
     # define the cost function
     a = tf.placeholder("float", [None, ACTIONS])
-    y = tf.placeholder("float", [None])
+    q_target = tf.placeholder("float", [None])
 
-    readout_action = tf.reduce_sum(tf.multiply(readout, a), axis=1)  # [None]
+    q_eval = tf.reduce_sum(tf.multiply(readout_eval, a), axis=1)  # [None]
     # readout_action -- reward of selected action by a.
-    cost = tf.reduce_mean(tf.square(y - readout_action))
+    cost = tf.reduce_mean(tf.square(q_target - q_eval))
     train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
 
     # open up a game state to communicate with emulator
@@ -93,42 +136,22 @@ def trainNetwork(s, readout, h_fc1, sess):
 
     x_t = cv2.cvtColor(cv2.resize(x_t, (80, 80)), cv2.COLOR_BGR2GRAY)
     ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
-    s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)  # s_t 80x80x4
+    observation = np.stack((x_t, x_t, x_t, x_t), axis=2)  # observation 80x80x4
+
+    sess.run(tf.global_variables_initializer())
 
     # saving and loading networks
-    saver = tf.train.Saver()
-    sess.run(tf.initialize_all_variables())
-    checkpoint = tf.train.get_checkpoint_state("saved_networks")
-    if checkpoint and checkpoint.model_checkpoint_path:
-        saver.restore(sess, checkpoint.model_checkpoint_path)
-        print("Successfully loaded:", checkpoint.model_checkpoint_path)
-    else:
-        # Re-train the network from zero.
-        print("Could not find old network weights")
+    saver = store_parameters()
 
     # tensorboard
-    tf.summary.FileWriter("./logs_bird/", sess.graph)
+    writer = tf.summary.FileWriter("./logs_bird/", sess.graph)
 
     # start training
     epsilon = INITIAL_EPSILON  # 0.0001
     t = 0
     while "ZR love EV" != "False":  # A no-stop circulation.
         # choose an action epsilon greedily
-        readout_t = readout.eval(feed_dict={s: [s_t]})[0]
-        a_t = np.zeros([ACTIONS])
-        # e.g. a_t -- array([0., 0.], dtype=float32)
-        action_index = 0
-        if t % FRAME_PER_ACTION == 0:
-            # epsilon-greedy to balance exploration and exploitation.
-            if random.random() <= epsilon:
-                # print("----------Random Action----------")
-                action_index = random.randrange(ACTIONS)
-                a_t[random.randrange(ACTIONS)] = 1
-            else:
-                action_index = np.argmax(readout_t)
-                a_t[action_index] = 1
-        else:
-            a_t[0] = 1  # do nothing
+        a_t, action_q_value, action_index = epsilon_select_action(t, epsilon, observation)
 
         # scale down epsilon
         if epsilon > FINAL_EPSILON and t > OBSERVE:
@@ -140,30 +163,35 @@ def trainNetwork(s, readout, h_fc1, sess):
         # preprocess the image.
         x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
         ret, x_t1 = cv2.threshold(x_t1, 1, 255, cv2.THRESH_BINARY)
+        # observation_ = np.stack((x_t1, x_t1, x_t1, x_t1), axis=2)
         x_t1 = np.reshape(x_t1, (80, 80, 1))
-        s_t1 = np.append(x_t1, s_t[:, :, :3], axis=2)  # (80x80x4)
+        observation_ = np.append(x_t1, observation[:, :, :3], axis=2)  # (80x80x4)
 
         # store the last 50000(REPLAY_MEMORY) transitions in deque D
-        D.append((s_t, a_t, r_t, s_t1, terminal))
+        D.append((observation, a_t, r_t, observation_, terminal))
         if len(D) > REPLAY_MEMORY:
             D.popleft()
 
-        '''Double DQN'''
         # only train if done observing
         if t > OBSERVE:
+            # check to replace target parameters
+            if t % REPLACE_TARGET_ITER == 0:
+                sess.run(target_replace_op)
+                print('\ntarget_params_replaced\n')
+
             # sample a minibatch(32) to train on
             minibatch = random.sample(D, BATCH)
 
             # get the batch variables
             # (d[0], d[1], d[2], d[3], d[4])
-            # (s_t, a_t, r_t, s_t1, terminal)
+            # (observation, a_t, r_t, observation_, terminal)
             s_j_batch = [d[0] for d in minibatch]
             a_batch = [d[1] for d in minibatch]
             r_batch = [d[2] for d in minibatch]
             s_j1_batch = [d[3] for d in minibatch]
 
             y_batch = []  # max_length = 32
-            readout_j1_batch = readout.eval(feed_dict={s: s_j1_batch})  # (32, 2)
+            readout_j1_batch = readout_target.eval(feed_dict={target_net_input: s_j1_batch})  # (32, 2)
             for i in range(0, len(minibatch)):  # len(minibatch) -- 32
                 terminal = minibatch[i][4]  # terminal -- type:bool
                 # if terminal, only equals reward
@@ -177,11 +205,11 @@ def trainNetwork(s, readout, h_fc1, sess):
                     # e.g. np.max(readout_j1_batch[i]) -- 12.69...
 
             # perform gradient step to minimize cost.
-            train_step.run(feed_dict={y: y_batch, a: a_batch, s: s_j_batch})
+            train_step.run(feed_dict={q_target: y_batch, a: a_batch, eval_net_input: s_j_batch})
         '''end'''
 
         # update the old values
-        s_t = s_t1
+        observation = observation_
         t += 1
 
         # save progress every 10000 iterations
@@ -191,22 +219,55 @@ def trainNetwork(s, readout, h_fc1, sess):
         # print info
         if t <= OBSERVE:
             state = "observe"
-        elif t > OBSERVE and t <= OBSERVE + EXPLORE:
+        elif OBSERVE < t <= OBSERVE + EXPLORE:
             state = "explore"
         else:
             state = "train"
 
         print("TIMESTEP", t, "/ STATE", state, "/ EPSILON", epsilon, "/ ACTION", action_index,
-              "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t))
+              "/ REWARD", r_t, "/ Q_MAX %e" % np.max(action_q_value))
 
         # write info to files
-        if t % 10000 <= 100:
-            a_file.write(",".join([str(x) for x in readout_t]) + '\n')
-            h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s: [s_t]})[0]]) + '\n')
-            cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
+        # if t % 10000 <= 100:
+        #     a_file.write(",".join([str(x) for x in action_q_value]) + '\n')
+        #     h_file.write(",".join([str(x) for x in h_fc1_eval.eval(feed_dict={eval_net_input: [observation]})[0]]) + '\n')
+        #     cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
+
+
+def store_parameters():
+    saver = tf.train.Saver()
+    # checkpoint = tf.train.get_checkpoint_state("saved_networks")
+    # if checkpoint and checkpoint.model_checkpoint_path:
+    #     saver.restore(sess, checkpoint.model_checkpoint_path)
+    #     print("Successfully loaded:", checkpoint.model_checkpoint_path)
+    # else:
+    #     # Re-train the network from zero.
+    #     print("Could not find old network weights")
+
+    return saver
+
+
+def epsilon_select_action(step, epsilon, observation):
+    action_q_value = readout_eval.eval(feed_dict={eval_net_input: [observation]})[0]
+    a_t = np.zeros([ACTIONS])
+    # e.g. a_t -- array([0., 0.], dtype=float32)
+    action_index = 0
+    if step % FRAME_PER_ACTION == 0:
+        # epsilon-greedy to balance exploration and exploitation.
+        if random.random() <= epsilon:
+            # print("----------Random Action----------")
+            action_index = random.randrange(ACTIONS)
+            a_t[action_index] = 1
+        else:
+            action_index = np.argmax(action_q_value)
+            a_t[action_index] = 1
+    else:
+        a_t[0] = 1  # do nothing
+
+    return a_t, action_q_value, action_index
 
 
 if __name__ == "__main__":
     sess = tf.InteractiveSession()
-    s, readout, h_fc1 = createNetwork()
-    trainNetwork(s, readout, h_fc1, sess)
+    eval_net_input, target_net_input, readout_eval, readout_target, h_fc1_eval, h_fc1_target = createNetwork()
+    trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target, h_fc1_eval, h_fc1_target, sess)
