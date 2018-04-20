@@ -8,6 +8,9 @@ sys.path.append("game/")
 import game.wrapped_flappy_bird as game
 import random
 import numpy as np
+import matplotlib as mlp
+mlp.use('Agg')
+import matplotlib.pyplot as plt
 from collections import deque
 
 # import pdb
@@ -24,7 +27,13 @@ FINAL_EPSILON = 0.0001  # final value of epsilon
 INITIAL_EPSILON = 0.0001  # starting value of epsilon
 REPLAY_MEMORY = 50000  # number of previous transitions to remember
 REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
-SAVER_ITER = 10000  # number of steps when save checkpoint
+
+SAVER_ITER = 10000  # number of steps when save checkpoint.
+COUNTERS_SIZE = 10  # the number of episodes to average for evaluation. 10
+AVERAGE_SIZE = 500  # the length of average_score to print a png. 500
+
+# Evaluation: store the average scores of ten last episodes.
+average_score = []
 
 
 def createNetwork():
@@ -111,6 +120,9 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     # store the previous observations in replay memory
     D = deque()
 
+    # Evaluation: store the last ten episodes' scores
+    counter = []
+
     # printing
     a_file = open("logs_" + GAME + "/readout.txt", 'w')
     h_file = open("logs_" + GAME + "/hidden.txt", 'w')
@@ -141,8 +153,8 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
     sess.run(tf.global_variables_initializer())
 
-    # saving and loading networks
-    saver = store_parameters()
+    # saving and loading networks, step determines when to save a png file.
+    saver, step = store_parameters()
 
     # tensorboard
     writer = tf.summary.FileWriter("./logs_bird/", sess.graph)
@@ -160,6 +172,11 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # run the selected action and observe next state and reward
         x_t1_colored, r_t, terminal = game_state.frame_step(a_t)
+
+        # store the score to counter when crash
+        # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
+        if terminal and (step + t) > 300000:
+            counter_add(counter, game_state.score, t + step)
 
         # preprocess the image.
         x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
@@ -215,7 +232,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # save progress every 10000 iterations
         if t % SAVER_ITER == 0:
-            saver.save(sess, 'saved_networks/' + GAME + '-dqn', global_step=t)
+            saver.save(sess, 'saved_networks/dqn_target_net/' + GAME + '-dqn', global_step=t)
 
         # print info
         if t <= OBSERVE:
@@ -237,18 +254,33 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
 def store_parameters():
     saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state("saved_networks")
+    checkpoint = tf.train.get_checkpoint_state("saved_networks/dqn_target_net/")
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
-        # path_ = checkpoint.model_checkpoint_path
-        # step = int((path_.split('-'))[-1])
+        path_ = checkpoint.model_checkpoint_path
+        step = int((path_.split('-'))[-1])
     else:
         # Re-train the network from zero.
         print("Could not find old network weights")
-        # step = 0
+        step = 0
 
-    return saver
+    return saver, step
+
+
+def counter_add(counters, count, steps):
+    counters.append(count)
+    # calculate the mean score and clear the counter.
+    if len(counters) >= COUNTERS_SIZE:
+        average_score.append(np.mean(counters))
+        # get a scores png and clear average_score.
+        if len(average_score) >= AVERAGE_SIZE:
+            plt.figure()
+            plt.plot(average_score)
+            plt.ylabel('score')
+            plt.savefig("logs_" + GAME + "/" + str(steps) + "_average_score.png")
+            average_score.clear()
+        counters.clear()
 
 
 def epsilon_select_action(step, epsilon, observation):
