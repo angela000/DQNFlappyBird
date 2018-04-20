@@ -5,7 +5,7 @@ import tensorflow as tf
 import cv2
 import sys
 sys.path.append("game/")
-import wrapped_flappy_bird as game
+import game.wrapped_flappy_bird as game
 import random
 import numpy as np
 from collections import deque
@@ -17,13 +17,14 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 10000.  # 10000 timesteps to observe before training
+OBSERVE = 100000.  # 100000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
 INITIAL_EPSILON = 0.0001  # starting value of epsilon
 REPLAY_MEMORY = 50000  # number of previous transitions to remember
 REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
+SAVER_ITER = 10000  # number of steps when save checkpoint
 
 
 def createNetwork():
@@ -213,7 +214,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         t += 1
 
         # save progress every 10000 iterations
-        if t % 5000 == 0:
+        if t % SAVER_ITER == 0:
             saver.save(sess, 'saved_networks/' + GAME + '-dqn', global_step=t)
 
         # print info
@@ -240,9 +241,12 @@ def store_parameters():
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
+        # path_ = checkpoint.model_checkpoint_path
+        # step = int((path_.split('-'))[-1])
     else:
         # Re-train the network from zero.
         print("Could not find old network weights")
+        # step = 0
 
     return saver
 

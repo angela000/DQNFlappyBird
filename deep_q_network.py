@@ -5,7 +5,7 @@ import tensorflow as tf
 import cv2
 import sys
 sys.path.append("game/")
-import wrapped_flappy_bird as game
+import game.wrapped_flappy_bird as game
 import random
 import numpy as np
 from collections import deque
@@ -17,12 +17,13 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 10000.  # 10000 timesteps to observe before training
+OBSERVE = 100000.  # 10000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
 INITIAL_EPSILON = 0.0001  # starting value of epsilon
 REPLAY_MEMORY = 50000  # number of previous transitions to remember
+SAVER_ITER = 10000  # number of steps when save checkpoint
 
 
 def createNetwork():
@@ -98,7 +99,7 @@ def trainNetwork(s, readout, h_fc1, sess):
     sess.run(tf.initialize_all_variables())
 
     # saving and loading networks
-    saver = func_store()
+    saver = store_parameters()
 
     # tensorboard
     tf.summary.FileWriter("./logs_bird/", sess.graph)
@@ -195,21 +196,24 @@ def trainNetwork(s, readout, h_fc1, sess):
               "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t))
 
         # write info to files
-        if t % 10000 <= 100:
+        if t % SAVER_ITER <= 100:
             a_file.write(",".join([str(x) for x in readout_t]) + '\n')
             h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s: [s_t]})[0]]) + '\n')
             cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
 
 
-def func_store():
+def store_parameters():
     saver = tf.train.Saver()
     checkpoint = tf.train.get_checkpoint_state("saved_networks")
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
+        # path_ = checkpoint.model_checkpoint_path
+        # step = int((path_.split('-'))[-1])
     else:
         # Re-train the network from zero.
         print("Could not find old network weights")
+        # step = 0
 
     return saver
 
