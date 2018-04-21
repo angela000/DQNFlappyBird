@@ -83,8 +83,8 @@ def trainNetwork(s, readout, h_fc1, sess):
     counter = []
 
     # printing
-    a_file = open("logs_" + GAME + "/readout.txt", 'w')
-    h_file = open("logs_" + GAME + "/hidden.txt", 'w')
+    a_file = open("logs_" + GAME + "/dqn/readout.txt", 'w')
+    h_file = open("logs_" + GAME + "/dqn/hidden.txt", 'w')
 
     # define the cost function
     a = tf.placeholder("float", [None, ACTIONS])
@@ -215,10 +215,10 @@ def trainNetwork(s, readout, h_fc1, sess):
               "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t))
 
         # write info to files
-        if t % SAVER_ITER <= 100:
-            a_file.write(",".join([str(x) for x in readout_t]) + '\n')
-            h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s: [s_t]})[0]]) + '\n')
-            cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
+        # if t % SAVER_ITER <= 100:
+        #     a_file.write(",".join([str(x) for x in readout_t]) + '\n')
+        #     h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s: [s_t]})[0]]) + '\n')
+        #     cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
 
 
 def store_parameters():
@@ -247,9 +247,9 @@ def counter_add(counters, count, steps):
             plt.figure()
             plt.plot(average_score)
             plt.ylabel('score')
-            plt.savefig("logs_" + GAME + "/" + str(steps) + "_average_score.png")
-            average_score.clear()
-        counters.clear()
+            plt.savefig("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.png")
+            del average_score[:]
+        del counters[:]
 
 
 if __name__ == "__main__":

@@ -127,8 +127,8 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     counter = []
 
     # printing
-    a_file = open("logs_" + GAME + "/readout.txt", 'w')
-    h_file = open("logs_" + GAME + "/hidden.txt", 'w')
+    a_file = open("logs_" + GAME + "/dqn_target_net/readout.txt", 'w')
+    h_file = open("logs_" + GAME + "/dqn_target_net/hidden.txt", 'w')
 
     # define the cost function
     a = tf.placeholder("float", [None, ACTIONS])
@@ -195,10 +195,14 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # only train if done observing
         if t > OBSERVE:
+            # aa = sess.run(e_params)
+            # bb = sess.run(t_params)
             # check to replace target parameters
             if t % REPLACE_TARGET_ITER == 0:
                 sess.run(target_replace_op)
                 print('\ntarget_params_replaced\n')
+                # aa = sess.run(e_params)
+                # bb = sess.run(t_params)
 
             # sample a minibatch(32) to train on
             minibatch = random.sample(D, BATCH)
@@ -222,8 +226,6 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
                     y_batch.append(r_batch[i])
                 else:
                     y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
-                    # e.g. readout_j1_batch[i] -- array([12.69..., 3.03...], dtype=float32)
-                    # e.g. np.max(readout_j1_batch[i]) -- 12.69...
 
             # perform gradient step to minimize cost.
             train_step.run(feed_dict={q_target: y_batch, a: a_batch, eval_net_input: s_j_batch})
@@ -281,9 +283,9 @@ def counter_add(counters, count, steps):
             plt.figure()
             plt.plot(average_score)
             plt.ylabel('score')
-            plt.savefig("logs_" + GAME + "/" + str(steps) + "_average_score.png")
-            average_score.clear()
-        counters.clear()
+            plt.savefig("logs_" + GAME + "/dqn_target_net/" + str(steps) + "_average_score.png")
+            del average_score[:]
+        del counters[:]
 
 
 def epsilon_select_action(step, epsilon, observation):

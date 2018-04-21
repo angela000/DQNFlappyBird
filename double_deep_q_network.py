@@ -127,8 +127,8 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     counter = []
 
     # printing
-    a_file = open("logs_" + GAME + "/readout.txt", 'w')
-    h_file = open("logs_" + GAME + "/hidden.txt", 'w')
+    a_file = open("logs_" + GAME + "/double_dqn/readout.txt", 'w')
+    h_file = open("logs_" + GAME + "/double_dqn/hidden.txt", 'w')
 
     # define the cost function
     a = tf.placeholder("float", [None, ACTIONS])
@@ -229,9 +229,6 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
                     '''Double DQN'''
                     y_batch.append(r_batch[i] + GAMMA * selected_q_next[i])
                     '''DQN'''
-                    # y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
-                    # e.g. readout_j1_batch[i] -- array([12.69..., 3.03...], dtype=float32)
-                    # e.g. np.max(readout_j1_batch[i]) -- 12.69...
 
             # perform gradient step to minimize cost.
             train_step.run(feed_dict={q_target: y_batch, a: a_batch, eval_net_input: s_j_batch})
@@ -289,9 +286,9 @@ def counter_add(counters, count, steps):
             plt.figure()
             plt.plot(average_score)
             plt.ylabel('score')
-            plt.savefig("logs_" + GAME + "/" + str(steps) + "_average_score.png")
-            average_score.clear()
-        counters.clear()
+            plt.savefig("logs_" + GAME + "/double_dqn/" + str(steps) + "_average_score.png")
+            del average_score[:]
+        del counters[:]
 
 
 def epsilon_select_action(step, epsilon, observation):
