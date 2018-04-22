@@ -31,7 +31,7 @@ INITIAL_EPSILON = 0.0001  # starting value of epsilon.
 REPLAY_MEMORY = 50000  # number of previous transitions to remember.
 
 SAVER_ITER = 10000  # number of steps when save checkpoint.
-COUNTERS_SIZE = 10  # the number of episodes to average for evaluation. 10
+COUNTERS_SIZE = 5  # the number of episodes to average for evaluation. 10
 AVERAGE_SIZE = 500  # the length of average_score to print a png. 500
 
 # Evaluation: store the average scores of ten last episodes.
@@ -116,7 +116,7 @@ def trainNetwork(s, readout, h_fc1, sess):
     saver, step = store_parameters()
 
     # tensorboard
-    tf.summary.FileWriter("./logs_bird/", sess.graph)
+    tf.summary.FileWriter("./logs_bird/dqn/", sess.graph)
 
     # start training
     epsilon = INITIAL_EPSILON  # 0.0001
@@ -148,7 +148,7 @@ def trainNetwork(s, readout, h_fc1, sess):
 
         # store the score to counter when crash
         # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
-        if terminal and (step+t) > 300000:
+        if terminal and (step+t) > 250000:
             counter_add(counter, game_state.score, t+step)
 
         # preprocess the image.
@@ -244,10 +244,13 @@ def counter_add(counters, count, steps):
         average_score.append(np.mean(counters))
         # get a scores png and clear average_score.
         if len(average_score) >= AVERAGE_SIZE:
-            plt.figure()
-            plt.plot(average_score)
-            plt.ylabel('score')
-            plt.savefig("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.png")
+            # plt.figure()
+            # plt.plot(average_score)
+            # plt.ylabel('score')
+            # plt.savefig("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.png")
+            fo = open("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.txt", "w")
+            fo.write(str(average_score))
+            fo.close()
             del average_score[:]
         del counters[:]
 
