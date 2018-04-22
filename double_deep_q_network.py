@@ -287,7 +287,7 @@ def counter_add(counters, count, steps):
             # plt.plot(average_score)
             # plt.ylabel('score')
             # plt.savefig("logs_" + GAME + "/double_dqn/" + str(steps) + "_average_score.png")
-            fo = open("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.txt", "w")
+            fo = open("logs_" + GAME + "/double_dqn/" + str(steps) + "_average_score.txt", "w")
             fo.write(str(average_score))
             fo.close()
             del average_score[:]
