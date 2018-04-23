@@ -32,7 +32,7 @@ REPLAY_MEMORY = 50000  # number of previous transitions to remember
 REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
 
 SAVER_ITER = 10000  # number of steps when save checkpoint.
-COUNTERS_SIZE = 5  # the number of episodes to average for evaluation. 10
+COUNTERS_SIZE = 2  # the number of episodes to average for evaluation. 10
 AVERAGE_SIZE = 500  # the length of average_score to print a png. 500
 
 # Evaluation: store the average scores of ten last episodes.
@@ -279,7 +279,12 @@ def counter_add(counters, count, steps):
     if len(counters) >= COUNTERS_SIZE:
         average_score.append(np.mean(counters))
         # get a scores png and clear average_score.
-        if len(average_score) >= AVERAGE_SIZE:
+        if steps >= 1000000:
+            a = steps//1000000
+            max_size = AVERAGE_SIZE//(2**a)
+        else:
+            max_size = AVERAGE_SIZE
+        if len(average_score) >= max_size:
             # plt.figure()
             # plt.plot(average_score)
             # plt.ylabel('score')
