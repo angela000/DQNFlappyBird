@@ -144,6 +144,9 @@ class GameState:
         isCrash = checkCrash({'x': self.playerx, 'y': self.playery,
                               'index': self.playerIndex},
                              self.upperPipes, self.lowerPipes)
+
+        score_return = self.score
+
         if isCrash:
             # SOUNDS['hit'].play()
             # SOUNDS['die'].play()
@@ -168,7 +171,7 @@ class GameState:
         pygame.display.update()
         FPSCLOCK.tick(FPS)
         # print(self.upperPipes[0]['y'] + PIPE_HEIGHT - int(BASEY * 0.2))
-        return image_data, reward, terminal
+        return image_data, reward, terminal, score_return
 
         # # pygame.surfarray.array3d()
         # Copy pixels into a 3d array

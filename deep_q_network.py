@@ -104,7 +104,7 @@ def trainNetwork(s, readout, h_fc1, sess):
     # do_nothing[1] == 1: flap the bird
     do_nothing[0] = 1
     # game_state.frame_step return: {image_data, reward, terminal}
-    x_t, r_0, terminal = game_state.frame_step(do_nothing)
+    x_t, r_0, terminal, score_current = game_state.frame_step(do_nothing)
 
     x_t = cv2.cvtColor(cv2.resize(x_t, (80, 80)), cv2.COLOR_BGR2GRAY)
     ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
@@ -144,12 +144,12 @@ def trainNetwork(s, readout, h_fc1, sess):
             epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
 
         # run the selected action and observe next state and reward
-        x_t1_colored, r_t, terminal = game_state.frame_step(a_t)
+        x_t1_colored, r_t, terminal, score_current = game_state.frame_step(a_t)
 
         # store the score to counter when crash
         # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
-        if terminal and (step+t) > 250000:
-            counter_add(counter, game_state.score, t+step)
+        if terminal and (step + t) > 250000:
+            counter_add(counter, score_current, t+step)
 
         # preprocess the image.
         x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
