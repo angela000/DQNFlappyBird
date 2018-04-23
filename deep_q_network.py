@@ -32,7 +32,7 @@ REPLAY_MEMORY = 50000  # number of previous transitions to remember.
 
 SAVER_ITER = 10000  # number of steps when save checkpoint.
 COUNTERS_SIZE = 2  # the number of episodes to average for evaluation. 10
-AVERAGE_SIZE = 500  # the length of average_score to print a png. 500
+AVERAGE_SIZE = 400  # the length of average_score to print a png. 500
 
 # Evaluation: store the average scores of ten last episodes.
 average_score = []
