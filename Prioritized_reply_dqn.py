@@ -4,16 +4,19 @@ from __future__ import print_function
 import tensorflow as tf
 import cv2
 import sys
+
 sys.path.append("game/")
 import wrapped_flappy_bird as game
 import random
 import numpy as np
 import matplotlib as mlp
+
 mlp.use('Agg')
 import matplotlib.pyplot as plt
 from collections import deque
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # import pdb
@@ -23,7 +26,7 @@ ACTIONS = 2  # number of valid actions
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
-OBSERVE = 100000.  # 100000 timesteps to observe before training
+OBSERVE = 1000.  # 100000 timesteps to observe before training
 EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
@@ -37,6 +40,118 @@ AVERAGE_SIZE = 400  # the length of average_score to print a png. 500
 
 # Evaluation: store the average scores of ten last episodes.
 average_score = []
+
+
+class SumTree(object):
+    """
+    This SumTree code is modified version and the original code is from:
+    https://github.com/jaara/AI-blog/blob/master/SumTree.py
+    Story the data with it priority in tree and data frameworks.
+    """
+    data_pointer = 0
+
+    def __init__(self, capacity):
+        self.capacity = capacity  # for all priority values
+        self.tree = np.zeros(2 * capacity - 1)
+        # [--------------Parent nodes-------------][-------leaves to recode priority-------]
+        #             size: capacity - 1                       size: capacity
+        self.data = np.zeros(capacity, dtype=object)  # for all transitions
+        # [--------------data frame-------------]
+        #             size: capacity
+
+    def add(self, p, data):
+        tree_idx = self.data_pointer + self.capacity - 1  # root point
+        self.data[self.data_pointer] = data  # update data_frame
+        self.update(tree_idx, p)  # update tree_frame
+
+        self.data_pointer += 1
+        if self.data_pointer >= self.capacity:  # replace when exceed the capacity
+            self.data_pointer = 0
+
+    def update(self, tree_idx, p):
+        change = p - self.tree[tree_idx]
+        self.tree[tree_idx] = p
+        # then propagate the change through tree
+        while tree_idx != 0:  # this method is faster than the recursive loop in the reference code
+            tree_idx = (tree_idx - 1) // 2
+            self.tree[tree_idx] += change
+
+    def get_leaf(self, v):
+        """
+        Tree structure and array storage:
+        Tree index:
+             0         -> storing priority sum
+            / \
+          1     2
+         / \   / \
+        3   4 5   6    -> storing priority for transitions
+        Array type for storing:
+        [0,1,2,3,4,5,6]
+        """
+        parent_idx = 0
+        while True:  # the while loop is faster than the method in the reference code
+            cl_idx = 2 * parent_idx + 1  # this leaf's left and right kids
+            cr_idx = cl_idx + 1
+            if cl_idx >= len(self.tree):  # reach bottom, end search
+                leaf_idx = parent_idx
+                break
+            else:  # downward search, always search for a higher priority node
+                if v <= self.tree[cl_idx]:
+                    parent_idx = cl_idx
+                else:
+                    v -= self.tree[cl_idx]
+                    parent_idx = cr_idx
+
+        data_idx = leaf_idx - self.capacity + 1
+        return leaf_idx, self.tree[leaf_idx], self.data[data_idx]
+
+    @property
+    def total_p(self):
+        return self.tree[0]  # the root
+
+
+class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
+    """
+    This SumTree code is modified version and the original code is from:
+    https://github.com/jaara/AI-blog/blob/master/Seaquest-DDQN-PER.py
+    """
+    epsilon = 0.01  # small amount to avoid zero priority
+    alpha = 0.6  # [0~1] convert the importance of TD error to priority
+    beta = 0.4  # importance-sampling, from initial value increasing to 1
+    beta_increment_per_sampling = 0.001
+    abs_err_upper = 1.  # clipped abs error
+
+    def __init__(self, capacity):
+        self.tree = SumTree(capacity)
+
+    def store(self, transition):
+        max_p = np.max(self.tree.tree[-self.tree.capacity:])
+        if max_p == 0:
+            max_p = self.abs_err_upper
+        self.tree.add(max_p, transition)  # set the max p for new p
+
+    def sample(self, n):
+        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n, self.tree.data[0].size)), np.empty(
+            (n, 1))
+        pri_seg = self.tree.total_p / n  # priority segment
+        self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])  # max = 1
+
+        min_prob = np.min(self.tree.tree[-self.tree.capacity:]) / self.tree.total_p  # for later calculate ISweight
+        for i in range(n):
+            a, b = pri_seg * i, pri_seg * (i + 1)
+            v = np.random.uniform(a, b)
+            idx, p, data = self.tree.get_leaf(v)
+            prob = p / self.tree.total_p
+            ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
+            b_idx[i], b_memory[i, :] = idx, data
+        return b_idx, b_memory, ISWeights
+
+    def batch_update(self, tree_idx, abs_errors):
+        abs_errors += self.epsilon  # convert to abs and avoid 0
+        clipped_errors = np.minimum(abs_errors, self.abs_err_upper)
+        ps = np.power(clipped_errors, self.alpha)
+        for ti, p in zip(tree_idx, ps):
+            self.tree.update(ti, p)
 
 
 def createNetwork():
@@ -119,9 +234,9 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
     with tf.variable_scope('soft_replacement'):
         target_replace_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
-
+    '''1'''
     # store the previous observations in replay memory
-    D = deque()
+    memory = Memory(capacity=REPLAY_MEMORY)
 
     # Evaluation: store the last ten episodes' scores
     counter = []
@@ -129,14 +244,14 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     # printing
     a_file = open("logs_" + GAME + "/dqn_target_net/readout.txt", 'w')
     h_file = open("logs_" + GAME + "/dqn_target_net/hidden.txt", 'w')
-
+    '''6'''
     # define the cost function
-    a = tf.placeholder("float", [None, ACTIONS])
-    q_target = tf.placeholder("float", [None])
-
-    q_eval = tf.reduce_sum(tf.multiply(readout_eval, a), axis=1)  # [None]
-    # readout_action -- reward of selected action by a.
-    cost = tf.reduce_mean(tf.square(q_target - q_eval))
+    q_target = tf.placeholder(tf.float32, [None, ACTIONS], name='Q_target')  # for calculating loss
+    '''2'''
+    ISWeights = tf.placeholder(tf.float32, [None, 1], name='IS_weights')
+    '''3'''
+    abs_errors = tf.reduce_sum(tf.abs(q_target - readout_eval), axis=1)  # for updating Sumtree
+    cost = tf.reduce_mean(ISWeights * tf.squared_difference(q_target, readout_eval))
     train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
 
     # open up a game state to communicate with emulator
@@ -187,48 +302,64 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         # observation_ = np.stack((x_t1, x_t1, x_t1, x_t1), axis=2)
         x_t1 = np.reshape(x_t1, (80, 80, 1))
         observation_ = np.append(x_t1, observation[:, :, :3], axis=2)  # (80x80x4)
-
-        # store the last 50000(REPLAY_MEMORY) transitions in deque D
-        D.append((observation, a_t, r_t, observation_, terminal))
-        if len(D) > REPLAY_MEMORY:
-            D.popleft()
+        '''4'''
+        # store the last 50000(REPLAY_MEMORY) transitions in memory
+        transition = np.hstack((observation.flatten(), a_t, r_t, observation_.flatten()))
+        memory.store(transition)  # have high priority for newly arrived transition
 
         # only train if done observing
         if t > OBSERVE:
-            # aa = sess.run(e_params)
-            # bb = sess.run(t_params)
             # check to replace target parameters
             if t % REPLACE_TARGET_ITER == 0:
                 sess.run(target_replace_op)
                 print('\ntarget_params_replaced\n')
-                # aa = sess.run(e_params)
-                # bb = sess.run(t_params)
 
             # sample a minibatch(32) to train on
-            minibatch = random.sample(D, BATCH)
+            tree_idx, batch_memory, ISWeights = memory.sample(BATCH)
 
             # get the batch variables
             # (d[0], d[1], d[2], d[3], d[4])
             # (observation, a_t, r_t, observation_, terminal)
-            s_j_batch = [d[0] for d in minibatch]
-            a_batch = [d[1] for d in minibatch]
-            r_batch = [d[2] for d in minibatch]
-            s_j1_batch = [d[3] for d in minibatch]
+            # s_j_batch = [d[0] for d in minibatch]
+            # a_batch = [d[1] for d in minibatch]
+            # r_batch = [d[2] for d in minibatch]
+            # s_j1_batch = [d[3] for d in minibatch]
+            #
+            # y_batch = []  # max_length = 32
+            # readout_j1_batch = readout_target.eval(feed_dict={target_net_input: s_j1_batch})  # (32, 2)
+            # for i in range(0, len(minibatch)):  # len(minibatch) -- 32
+            #     terminal = minibatch[i][4]  # terminal -- type:bool
+            #     # if terminal, only equals reward
+            #     # terminal: true -- crash
+            #     # terminal: false -- right
+            #     if terminal:
+            #         y_batch.append(r_batch[i])
+            #     else:
+            #         y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
+            #
+            # # perform gradient step to minimize cost.
+            # train_step.run(feed_dict={q_target: y_batch, a: a_batch, eval_net_input: s_j_batch})
+            '''5'''
+            q_next, q_eval = sess.run([readout_target, readout_eval],
+                                      feed_dict={target_net_input: np.reshape(batch_memory[:, -80 * 80 * 4:],
+                                                                              (BATCH, 80, 80, 4)),
+                                                 eval_net_input: np.reshape(batch_memory[:, :80 * 80 * 4],
+                                                                            (BATCH, 80, 80, 4))})
 
-            y_batch = []  # max_length = 32
-            readout_j1_batch = readout_target.eval(feed_dict={target_net_input: s_j1_batch})  # (32, 2)
-            for i in range(0, len(minibatch)):  # len(minibatch) -- 32
-                terminal = minibatch[i][4]  # terminal -- type:bool
-                # if terminal, only equals reward
-                # terminal: true -- crash
-                # terminal: false -- right
-                if terminal:
-                    y_batch.append(r_batch[i])
-                else:
-                    y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
+            q_target = q_eval.copy()
 
-            # perform gradient step to minimize cost.
-            train_step.run(feed_dict={q_target: y_batch, a: a_batch, eval_net_input: s_j_batch})
+            batch_index = np.arange(BATCH, dtype=np.int32)
+            eval_act_index = batch_memory[:, 80 * 80 * 4].astype(int)
+            reward = batch_memory[:, 80 * 80 * 4 + 1]
+
+            q_target[batch_index, eval_act_index] = reward + GAMMA * np.max(q_next, axis=1)
+
+            # if self.prioritized:
+            _, abs_errors, cost = sess.run([train_step, abs_errors, cost],
+                                           feed_dict={eval_net_input: batch_memory[:, :80*80*4],
+                                                      q_target: q_target,
+                                                      ISWeights: ISWeights})
+            memory.batch_update(tree_idx, abs_errors)  # update priority
         '''end'''
 
         # update the old values
@@ -249,12 +380,6 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         print("TIMESTEP", t, "/ STATE", state, "/ EPSILON", epsilon, "/ ACTION", action_index,
               "/ REWARD", r_t, "/ Q_MAX %e" % np.max(action_q_value))
-
-        # write info to files
-        # if t % 10000 <= 100:
-        #     a_file.write(",".join([str(x) for x in action_q_value]) + '\n')
-        #     h_file.write(",".join([str(x) for x in h_fc1_eval.eval(feed_dict={eval_net_input: [observation]})[0]]) + '\n')
-        #     cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
 
 
 def store_parameters():
@@ -280,8 +405,8 @@ def counter_add(counters, count, steps):
         average_score.append(np.mean(counters))
         # get a scores png and clear average_score.
         if steps >= 1000000:
-            a = steps//1000000
-            max_size = AVERAGE_SIZE//(2**a)
+            a = steps // 1000000
+            max_size = AVERAGE_SIZE // (2 ** a)
         else:
             max_size = AVERAGE_SIZE
         if len(average_score) >= max_size:
