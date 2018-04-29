@@ -177,7 +177,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         x_t1_colored, r_t, terminal, score_current = game_state.frame_step(a_t)
 
         # store the score to counter when crash
-        # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
+        # (step+t) > 250000, so that the 0 pts at the beginning could be filtered.
         if terminal and (step + t) > 250000:
             counter_add(counter, score_current, t + step)
 

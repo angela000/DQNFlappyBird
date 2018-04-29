@@ -20,9 +20,10 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # import pdb
-
+'''OBSERVE must > REPLAY_MEMORY, so that the sumTree's leaf won't be zero.'''
 GAME = 'bird'  # the name of the game being played for log files
 ACTIONS = 2  # number of valid actions
+N_FEATURES = 80*80*4  # number of features
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 
@@ -31,7 +32,7 @@ EXPLORE = 3000000.  # frames over which to anneal epsilon
 GAMMA = 0.99  # decay rate of past observations
 FINAL_EPSILON = 0.0001  # final value of epsilon
 INITIAL_EPSILON = 0.0001  # starting value of epsilon
-REPLAY_MEMORY = 50000  # number of previous transitions to remember
+REPLAY_MEMORY = 500  # number of previous transitions to remember 50000
 REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
 
 SAVER_ITER = 10000  # number of steps when save checkpoint.
@@ -131,6 +132,8 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
         self.tree.add(max_p, transition)  # set the max p for new p
 
     def sample(self, n):
+        tt = self.tree.tree
+        dd = self.tree.data
         b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n, self.tree.data[0].size)), np.empty(
             (n, 1))
         pri_seg = self.tree.total_p / n  # priority segment
@@ -142,6 +145,9 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
             v = np.random.uniform(a, b)
             idx, p, data = self.tree.get_leaf(v)
             prob = p / self.tree.total_p
+            aa = prob
+            bb = min_prob
+
             ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
             b_idx[i], b_memory[i, :] = idx, data
         return b_idx, b_memory, ISWeights
@@ -242,14 +248,15 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     counter = []
 
     # printing
-    a_file = open("logs_" + GAME + "/dqn_target_net/readout.txt", 'w')
-    h_file = open("logs_" + GAME + "/dqn_target_net/hidden.txt", 'w')
+    a_file = open("logs_" + GAME + "/Prioritized_dqn/readout.txt", 'w')
+    h_file = open("logs_" + GAME + "/Prioritized_dqn/hidden.txt", 'w')
     '''6'''
     # define the cost function
-    q_target = tf.placeholder(tf.float32, [None, ACTIONS], name='Q_target')  # for calculating loss
+    q_target = tf.placeholder(tf.float32, [None, ACTIONS])  # for calculating loss
     '''2'''
-    ISWeights = tf.placeholder(tf.float32, [None, 1], name='IS_weights')
+    ISWeights = tf.placeholder(tf.float32, [None, 1])
     '''3'''
+    # define loss/cost
     abs_errors = tf.reduce_sum(tf.abs(q_target - readout_eval), axis=1)  # for updating Sumtree
     cost = tf.reduce_mean(ISWeights * tf.squared_difference(q_target, readout_eval))
     train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
@@ -275,7 +282,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     saver, step = store_parameters()
 
     # tensorboard
-    writer = tf.summary.FileWriter("./logs_bird/dqn_target_net/", sess.graph)
+    writer = tf.summary.FileWriter("./logs_bird/Prioritized_dqn/", sess.graph)
 
     # start training
     epsilon = INITIAL_EPSILON  # 0.0001
@@ -292,7 +299,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         x_t1_colored, r_t, terminal, score_current = game_state.frame_step(a_t)
 
         # store the score to counter when crash
-        # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
+        # (step+t) > 250000, so that the 0 pts at the beginning could be filtered.
         if terminal and (step + t) > 250000:
             counter_add(counter, score_current, t + step)
 
@@ -315,50 +322,28 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
                 print('\ntarget_params_replaced\n')
 
             # sample a minibatch(32) to train on
-            tree_idx, batch_memory, ISWeights = memory.sample(BATCH)
-
-            # get the batch variables
-            # (d[0], d[1], d[2], d[3], d[4])
-            # (observation, a_t, r_t, observation_, terminal)
-            # s_j_batch = [d[0] for d in minibatch]
-            # a_batch = [d[1] for d in minibatch]
-            # r_batch = [d[2] for d in minibatch]
-            # s_j1_batch = [d[3] for d in minibatch]
-            #
-            # y_batch = []  # max_length = 32
-            # readout_j1_batch = readout_target.eval(feed_dict={target_net_input: s_j1_batch})  # (32, 2)
-            # for i in range(0, len(minibatch)):  # len(minibatch) -- 32
-            #     terminal = minibatch[i][4]  # terminal -- type:bool
-            #     # if terminal, only equals reward
-            #     # terminal: true -- crash
-            #     # terminal: false -- right
-            #     if terminal:
-            #         y_batch.append(r_batch[i])
-            #     else:
-            #         y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
-            #
-            # # perform gradient step to minimize cost.
-            # train_step.run(feed_dict={q_target: y_batch, a: a_batch, eval_net_input: s_j_batch})
+            tree_idx, batch_memory, ISWeights_ = memory.sample(BATCH)
+            ISWeights_ = np.float32(ISWeights_)
             '''5'''
             q_next, q_eval = sess.run([readout_target, readout_eval],
-                                      feed_dict={target_net_input: np.reshape(batch_memory[:, -80 * 80 * 4:],
+                                      feed_dict={target_net_input: np.reshape(batch_memory[:, -N_FEATURES:],
                                                                               (BATCH, 80, 80, 4)),
-                                                 eval_net_input: np.reshape(batch_memory[:, :80 * 80 * 4],
+                                                 eval_net_input: np.reshape(batch_memory[:, :N_FEATURES],
                                                                             (BATCH, 80, 80, 4))})
 
             q_target = q_eval.copy()
 
             batch_index = np.arange(BATCH, dtype=np.int32)
-            eval_act_index = batch_memory[:, 80 * 80 * 4].astype(int)
-            reward = batch_memory[:, 80 * 80 * 4 + 1]
+            eval_act_index = batch_memory[:, N_FEATURES].astype(int)
+            reward = batch_memory[:, N_FEATURES]
 
             q_target[batch_index, eval_act_index] = reward + GAMMA * np.max(q_next, axis=1)
 
             # if self.prioritized:
             _, abs_errors, cost = sess.run([train_step, abs_errors, cost],
-                                           feed_dict={eval_net_input: batch_memory[:, :80*80*4],
+                                           feed_dict={eval_net_input: batch_memory[:, :N_FEATURES],
                                                       q_target: q_target,
-                                                      ISWeights: ISWeights})
+                                                      ISWeights: ISWeights_})
             memory.batch_update(tree_idx, abs_errors)  # update priority
         '''end'''
 
@@ -368,7 +353,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # save progress every 10000 iterations
         if t % SAVER_ITER == 0:
-            saver.save(sess, 'saved_networks/dqn_target_net/' + GAME + '-dqn', global_step=t)
+            saver.save(sess, 'saved_networks/Prioritized_dqn/' + GAME + '-dqn', global_step=t)
 
         # print info
         if t <= OBSERVE:
@@ -384,7 +369,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
 def store_parameters():
     saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state("saved_networks/dqn_target_net/")
+    checkpoint = tf.train.get_checkpoint_state("saved_networks/Prioritized_dqn/")
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
@@ -414,7 +399,7 @@ def counter_add(counters, count, steps):
             # plt.plot(average_score)
             # plt.ylabel('score')
             # plt.savefig("logs_" + GAME + "/dqn_target_net/" + str(steps) + "_average_score.png")
-            fo = open("logs_" + GAME + "/dqn_target_net/" + str(steps) + "_average_score.txt", "w")
+            fo = open("logs_" + GAME + "/Prioritized_dqn/" + str(steps) + "_average_score.txt", "w")
             fo.write(str(average_score))
             fo.close()
             del average_score[:]
