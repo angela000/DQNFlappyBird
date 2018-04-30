@@ -13,7 +13,6 @@ import matplotlib as mlp
 
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from collections import deque
 
 import os
 
@@ -27,12 +26,12 @@ N_FEATURES = 80 * 80 * 4  # number of features
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
 '''OBSERVE must > REPLY_MEMORY to full the sumTree'''
-OBSERVE = 2000.  # 100000 timesteps to observe before training
+OBSERVE = 100000.  # 100000 timesteps to observe before training
 EXPLORE = 3000000.  # 3000000 frames over which to anneal epsilon
 GAMMA = 0.99  # 0.99 decay rate of past observations
 FINAL_EPSILON = 0.0001  # 0.0001 final value of epsilon
 INITIAL_EPSILON = 0.0001  # 0.0001 starting value of epsilon
-REPLAY_MEMORY = 1000  # 50000 number of previous transitions to remember
+REPLAY_MEMORY = 50000  # 50000 number of previous transitions to remember
 REPLACE_TARGET_ITER = 500  # 500 number of steps when target net parameters update
 
 SAVER_ITER = 10000  # number of steps when save checkpoint.
