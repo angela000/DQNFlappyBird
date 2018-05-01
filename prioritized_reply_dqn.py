@@ -13,26 +13,26 @@ import matplotlib as mlp
 
 mlp.use('Agg')
 import matplotlib.pyplot as plt
+from collections import deque
 
 import os
-
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # import pdb
 
 GAME = 'bird'  # the name of the game being played for log files
 ACTIONS = 2  # number of valid actions
-N_FEATURES = 80 * 80 * 4  # number of features
 FRAME_PER_ACTION = 1  # number of frames per action
 BATCH = 32  # size of minibatch
-'''OBSERVE must > REPLY_MEMORY to full the sumTree'''
-OBSERVE = 100000.  # 100000 timesteps to observe before training
-EXPLORE = 3000000.  # 3000000 frames over which to anneal epsilon
-GAMMA = 0.99  # 0.99 decay rate of past observations
-FINAL_EPSILON = 0.0001  # 0.0001 final value of epsilon
-INITIAL_EPSILON = 0.0001  # 0.0001 starting value of epsilon
-REPLAY_MEMORY = 50000  # 50000 number of previous transitions to remember
-REPLACE_TARGET_ITER = 500  # 500 number of steps when target net parameters update
+N_FEATURES = 80 * 80 * 4  # number of features
+
+OBSERVE = 1000.  # 100000 timesteps to observe before training
+EXPLORE = 3000000.  # frames over which to anneal epsilon
+GAMMA = 0.99  # decay rate of past observations
+FINAL_EPSILON = 0.0001  # final value of epsilon
+INITIAL_EPSILON = 0.0001  # starting value of epsilon
+REPLAY_MEMORY = 500  # number of previous transitions to remember
+REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
 
 SAVER_ITER = 10000  # number of steps when save checkpoint.
 COUNTERS_SIZE = 2  # the number of episodes to average for evaluation. 10
@@ -235,28 +235,30 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     # parameter transfer
     t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_net')
     e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='eval_net')
+
     with tf.variable_scope('soft_replacement'):
         target_replace_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
 
     # store the previous observations in replay memory
     memory = Memory(capacity=REPLAY_MEMORY)
 
-    # Evaluation: store the last COUNTERS_SIZE episodes' scores
+    # Evaluation: store the last ten episodes' scores
     counter = []
 
     # define the cost function
-    # a = tf.placeholder("float", [None, ACTIONS])
-    # q_target = tf.placeholder("float", [None])
-    q_target = tf.placeholder("float", [None, ACTIONS])  # for calculating loss
-    ISWeights_holder = tf.placeholder("float", [None, 1])
+    a = tf.placeholder("float", [None, ACTIONS])
+    q_target = tf.placeholder("float", [None])
+    ISWeights = tf.placeholder(tf.float32, [None, 1])
 
-    # define the cost
-    abs_errors = tf.reduce_sum(tf.abs(q_target - readout_eval), axis=1)  # for updating Sumtree
-    cost = tf.reduce_mean(ISWeights_holder * tf.squared_difference(q_target, readout_eval))
+    q_eval = tf.reduce_sum(tf.multiply(readout_eval, a), axis=1)  # [None]
+    # readout_action -- reward of selected action by a.
+    abs_errors = tf.abs(q_target - q_eval)
+    cost = tf.reduce_mean(ISWeights * tf.square(q_target - q_eval))
     train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
 
     # open up a game state to communicate with emulator
     game_state = game.GameState()
+
     # get the first state by doing nothing and preprocess the image to 80x80x4
     do_nothing = np.zeros(ACTIONS)
     # do_nothing[0] == 1: do nothing
@@ -302,8 +304,9 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         x_t1 = np.reshape(x_t1, (80, 80, 1))
         observation_ = np.append(x_t1, observation[:, :, :3], axis=2)  # (80x80x4)
 
-        # store the last 50000(REPLAY_MEMORY) transitions in deque D
-        transition = np.hstack((observation.flatten(), a_t, r_t, observation_.flatten()))
+        # store the last 50000(REPLAY_MEMORY) transitions in memory
+        terminal_int = transform_terminal(terminal)
+        transition = np.hstack((observation.flatten(), a_t, r_t, terminal_int, observation_.flatten()))
         memory.store(transition)  # have high priority for newly arrived transition
 
         # only train if done observing
@@ -313,27 +316,35 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
                 sess.run(target_replace_op)
                 print('\ntarget_params_replaced\n')
 
+            # sample a minibatch(32) to train on
             tree_idx, batch_memory, ISWeights_value = memory.sample(BATCH)
 
-            q_next, q_eval = sess.run([readout_target, readout_eval],
-                                      feed_dict={target_net_input: np.reshape(batch_memory[:, -N_FEATURES:],
-                                                                              (BATCH, 80, 80, 4)),
-                                                 eval_net_input: np.reshape(batch_memory[:, :N_FEATURES],
-                                                                            (BATCH, 80, 80, 4))})
-            q_target_value = q_eval.copy()
+            # get the batch variables
+            # (d[0], d[1], d[2], d[3], d[4])
+            # (observation, a_t, r_t, terminal, observation_)
+            s_j_batch = np.reshape(batch_memory[:, :N_FEATURES], (BATCH, 80, 80, 4))
+            a_batch = batch_memory[:, N_FEATURES:N_FEATURES+2].astype(int)
+            r_batch = batch_memory[:, N_FEATURES + 2]
+            terminal = batch_memory[:, N_FEATURES + 3]
+            s_j1_batch = np.reshape(batch_memory[:, -N_FEATURES:], (BATCH, 80, 80, 4))
 
-            batch_index = np.arange(BATCH, dtype=np.int32)
-            eval_act_index = batch_memory[:, N_FEATURES].astype(int)
-            reward = batch_memory[:, N_FEATURES + 1]
+            y_batch = []  # max_length = 32
+            # a_batch_two = a_batch_process(a_batch)
+            readout_j1_batch = readout_target.eval(feed_dict={target_net_input: s_j1_batch})  # (32, 2)
+            for i in range(0, BATCH):  # len(minibatch) -- 32
+                if terminal[i] == 1:
+                    y_batch.append(r_batch[i])
+                else:
+                    y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
 
-            q_target_value[batch_index, eval_act_index] = reward + GAMMA * np.max(q_next, axis=1)
+            # perform gradient step to minimize cost.
+            _, abs_errors_ = sess.run([train_step, abs_errors],
+                                      feed_dict={q_target: y_batch,
+                                                 a: a_batch,
+                                                 eval_net_input: s_j_batch,
+                                                 ISWeights: ISWeights_value})
 
-            _, abs_errors_, cost_ = sess.run([train_step, abs_errors, cost],
-                                             feed_dict={eval_net_input: np.reshape(batch_memory[:, :N_FEATURES],
-                                                                                   (BATCH, 80, 80, 4)),
-                                                        q_target: q_target_value,
-                                                        ISWeights_holder: ISWeights_value})
-            memory.batch_update(tree_idx, abs_errors_)  # update priority
+            memory.batch_update(tree_idx, abs_errors_)
         '''end'''
 
         # update the old values
@@ -409,6 +420,21 @@ def epsilon_select_action(step, epsilon, observation):
         a_t[0] = 1  # do nothing
 
     return a_t, action_q_value, action_index
+
+
+def transform_terminal(terminal):
+    if terminal:
+        return 1
+    else:
+        return 0
+
+
+def a_batch_process(a_batch):
+    size = len(a_batch)
+    a = np.zeros((size, ACTIONS))
+    for i in range(size):
+        a[i, a_batch[i]] = 1
+    return a
 
 
 if __name__ == "__main__":
