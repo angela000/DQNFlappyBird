@@ -153,10 +153,6 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     # Evaluation: store the last ten episodes' scores
     counter = []
 
-    # printing
-    a_file = open("logs_" + GAME + "/dueling_dqn/readout.txt", 'w')
-    h_file = open("logs_" + GAME + "/dueling_dqn/hidden.txt", 'w')
-
     # define the cost function
     a = tf.placeholder("float", [None, ACTIONS])
     q_target = tf.placeholder("float", [None])
@@ -187,7 +183,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     saver, step = store_parameters()
 
     # tensorboard
-    writer = tf.summary.FileWriter("./logs_bird/dueling_dqn/", sess.graph)
+    writer = tf.summary.FileWriter(SAVE_PATH, sess.graph)
 
     # start training
     epsilon = INITIAL_EPSILON  # 0.0001
@@ -268,7 +264,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # save progress every 10000 iterations
         if t % SAVER_ITER == 0:
-            saver.save(sess, 'saved_networks/dueling_dqn/' + GAME + '-dqn', global_step=(t+step))
+            saver.save(sess, SAVE_PATH + GAME + '-dqn', global_step=(t+step))
 
         # print info
         if t <= OBSERVE:
@@ -281,16 +277,10 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         print("TIMESTEP", t, "/ STATE", state, "/ EPSILON", epsilon, "/ ACTION", action_index,
               "/ REWARD", r_t, "/ Q_MAX %e" % np.max(action_q_value))
 
-        # write info to files
-        # if t % 10000 <= 100:
-        #     a_file.write(",".join([str(x) for x in action_q_value]) + '\n')
-        #     h_file.write(",".join([str(x) for x in h_fc1_eval.eval(feed_dict={eval_net_input: [observation]})[0]]) + '\n')
-        #     cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
-
 
 def store_parameters():
     saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state("saved_networks/dueling_dqn/")
+    checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
@@ -320,7 +310,7 @@ def counter_add(counters, count, steps):
             # plt.plot(average_score)
             # plt.ylabel('score')
             # plt.savefig("logs_" + GAME + "/double_dqn/" + str(steps) + "_average_score.png")
-            fo = open("logs_" + GAME + "/dueling_dqn/" + str(steps) + "_average_score.txt", "w")
+            fo = open(LOGS_PATH + str(steps) + "_average_score.txt", "w")
             fo.write(str(average_score))
             fo.close()
             del average_score[:]

@@ -281,7 +281,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
     saver, step = store_parameters()
 
     # tensorboard
-    writer = tf.summary.FileWriter("./logs_bird/prioritized_reply_dqn/", sess.graph)
+    writer = tf.summary.FileWriter(LOGS_PATH, sess.graph)
 
     # start training
     epsilon = INITIAL_EPSILON  # 0.0001
@@ -357,7 +357,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # save progress every 10000 iterations
         if t % SAVER_ITER == 0:
-            saver.save(sess, 'saved_networks/prioritized_reply_dqn/' + GAME + '-dqn', global_step=(t+step))
+            saver.save(sess, SAVE_PATH + GAME + '-dqn', global_step=(t+step))
 
         # print info
         if t <= OBSERVE:
@@ -373,7 +373,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
 def store_parameters():
     saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state("saved_networks/prioritized_reply_dqn/")
+    checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
@@ -399,7 +399,7 @@ def counter_add(counters, count, steps):
         else:
             max_size = AVERAGE_SIZE
         if len(average_score) >= max_size:
-            fo = open("logs_" + GAME + "/prioritized_reply_dqn/" + str(steps) + "_average_score.txt", "w")
+            fo = open(LOGS_PATH + str(steps) + "_average_score.txt", "w")
             fo.write(str(average_score))
             fo.close()
             del average_score[:]
