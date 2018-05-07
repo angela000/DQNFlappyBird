@@ -4,3 +4,5 @@
 .idea/
 *.xml
 events*
+*.txt
+bird-dqn*

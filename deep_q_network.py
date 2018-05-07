@@ -13,6 +13,7 @@ mlp.use('Agg')
 import matplotlib.pyplot as plt
 from collections import deque
 
+import shutil
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -36,6 +37,10 @@ AVERAGE_SIZE = 400  # the length of average_score to print a png. 500
 
 # Evaluation: store the average scores of ten last episodes.
 average_score = []
+
+LOGS_PATH = "./logs_" + GAME + "/dqn/"
+SAVE_PATH = "./saved_networks/dqn/"
+SAVE_BACK_PATH = "./saved_back/dqn/"
 
 
 def createNetwork():
@@ -82,10 +87,6 @@ def trainNetwork(s, readout, h_fc1, sess):
     # Evaluation: store the last ten episodes' scores
     counter = []
 
-    # printing
-    a_file = open("logs_" + GAME + "/dqn/readout.txt", 'w')
-    h_file = open("logs_" + GAME + "/dqn/hidden.txt", 'w')
-
     # define the cost function
     a = tf.placeholder("float", [None, ACTIONS])
     y = tf.placeholder("float", [None])
@@ -116,7 +117,7 @@ def trainNetwork(s, readout, h_fc1, sess):
     saver, step = store_parameters()
 
     # tensorboard
-    tf.summary.FileWriter("./logs_bird/dqn/", sess.graph)
+    tf.summary.FileWriter(LOGS_PATH, sess.graph)
 
     # start training
     epsilon = INITIAL_EPSILON  # 0.0001
@@ -149,7 +150,9 @@ def trainNetwork(s, readout, h_fc1, sess):
         # store the score to counter when crash
         # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
         if terminal and (step + t) > 250000:
-            counter_add(counter, score_current, t+step)
+            # counter_add(counter, score_current, t+step)
+            if (step + t) % 100000 == 0:
+                shutil.copytree(SAVE_PATH, SAVE_BACK_PATH + str((step + t)))
 
         # preprocess the image.
         x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
@@ -201,7 +204,7 @@ def trainNetwork(s, readout, h_fc1, sess):
 
         # save progress every 10000 iterations
         if t % 10000 == 0:
-            saver.save(sess, 'saved_networks/dqn/' + GAME + '-dqn', global_step=t)
+            saver.save(sess, SAVE_PATH + GAME + '-dqn', global_step=(t+step))
 
         # print info
         if t <= OBSERVE:
@@ -214,16 +217,10 @@ def trainNetwork(s, readout, h_fc1, sess):
         print("TIMESTEP", t, "/ STATE", state, "/ EPSILON", epsilon, "/ ACTION", action_index,
               "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t))
 
-        # write info to files
-        # if t % SAVER_ITER <= 100:
-        #     a_file.write(",".join([str(x) for x in readout_t]) + '\n')
-        #     h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s: [s_t]})[0]]) + '\n')
-        #     cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
-
 
 def store_parameters():
     saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state("saved_networks/dqn")
+    checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print("Successfully loaded:", checkpoint.model_checkpoint_path)
@@ -237,6 +234,7 @@ def store_parameters():
     return saver, step
 
 
+# usage in testing.
 def counter_add(counters, count, steps):
     counters.append(count)
     # calculate the mean score and clear the counter.
@@ -253,7 +251,7 @@ def counter_add(counters, count, steps):
             # plt.plot(average_score)
             # plt.ylabel('score')
             # plt.savefig("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.png")
-            fo = open("logs_" + GAME + "/dqn/" + str(steps) + "_average_score.txt", "w")
+            fo = open(LOGS_PATH + str(steps) + "_average_score.txt", "w")
             fo.write(str(average_score))
             fo.close()
             del average_score[:]

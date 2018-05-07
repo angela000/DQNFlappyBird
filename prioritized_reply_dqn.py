@@ -13,8 +13,8 @@ import matplotlib as mlp
 
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from collections import deque
 
+import shutil
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -40,6 +40,10 @@ AVERAGE_SIZE = 400  # the length of average_score to print a png. 500
 
 # Evaluation: store the average scores of ten last episodes.
 average_score = []
+
+LOGS_PATH = "./logs_" + GAME + "/prioritized_reply_dqn/"
+SAVE_PATH = "./saved_networks/prioritized_reply_dqn/"
+SAVE_BACK_PATH = "./saved_back/prioritized_reply_dqn/"
 
 
 class SumTree(object):
@@ -353,7 +357,7 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
 
         # save progress every 10000 iterations
         if t % SAVER_ITER == 0:
-            saver.save(sess, 'saved_networks/prioritized_reply_dqn/' + GAME + '-dqn', global_step=t)
+            saver.save(sess, 'saved_networks/prioritized_reply_dqn/' + GAME + '-dqn', global_step=(t+step))
 
         # print info
         if t <= OBSERVE:
