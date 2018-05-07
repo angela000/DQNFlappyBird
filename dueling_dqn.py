@@ -199,10 +199,14 @@ def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target,
         # run the selected action and observe next state and reward
         x_t1_colored, r_t, terminal, score_current = game_state.frame_step(a_t)
 
+        # Training:
+        if (step+t) % 1000000 == 0:
+            shutil.copytree(SAVE_PATH, SAVE_BACK_PATH + str((step + t)))
+        # Testing:
         # store the score to counter when crash
         # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
-        if terminal and (step + t) > 250000:
-            counter_add(counter, score_current, t + step)
+        # if terminal and (step + t) > 250000:
+            # counter_add(counter, score_current, t+step)
 
         # preprocess the image.
         x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
