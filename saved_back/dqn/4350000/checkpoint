@@ -1,6 +1,0 @@
-model_checkpoint_path: "bird-dqn-4350000"
-all_model_checkpoint_paths: "bird-dqn-4310000"
-all_model_checkpoint_paths: "bird-dqn-4320000"
-all_model_checkpoint_paths: "bird-dqn-4330000"
-all_model_checkpoint_paths: "bird-dqn-4340000"
-all_model_checkpoint_paths: "bird-dqn-4350000"
