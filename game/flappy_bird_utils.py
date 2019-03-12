@@ -1,7 +1,18 @@
 import pygame
 import sys
 
-
+# Images: {
+#   numbers: (img'0',img'1',img'2',img'3',img'4',img'5',img'6',img'7',img'8',img'9'),
+#   base: img'base'
+#   background: img'background'
+#   player: (img'up', img'mid', img'down')
+#   pipe: (img'up_pipe', img'down_pipe')
+#}
+# Sounds: {die, hit, point, swoosh, wing}
+# Hitmasks: {
+#   pipe:(up, down) 是一个矩阵，元素为True, False，矩阵大小等于对应图片的像素点
+#   player:(up, mid, down)
+# }
 def load():
     # path of player with different states
     # three different pictures of bird's different pose.
@@ -16,6 +27,9 @@ def load():
 
     # path of pipe
     PIPE_PATH = 'assets/sprites/pipe-green.png'
+
+    # path of base
+    BASE_PATH = 'assets/sprites/base.png'
 
     IMAGES, SOUNDS, HITMASKS = {}, {}, {}
 
@@ -38,7 +52,7 @@ def load():
     )
 
     # base (ground) sprite
-    IMAGES['base'] = pygame.image.load('assets/sprites/base.png').convert_alpha()
+    IMAGES['base'] = pygame.image.load(BASE_PATH).convert_alpha()
 
     # select random background sprites
     IMAGES['background'] = pygame.image.load(BACKGROUND_PATH).convert()

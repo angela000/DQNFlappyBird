@@ -13,6 +13,9 @@ FPS = 30
 SCREENWIDTH = 288
 SCREENHEIGHT = 512
 
+COUNTERS_SIZE = 10  # the number of episodes to average for evaluation. 10
+AVERAGE_SIZE = 500  # the length of average_score to print a png. 500
+
 # # pygame.init()
 # initialize all imported pygame modules.
 
@@ -55,17 +58,18 @@ class GameState:
         self.playerx = int(SCREENWIDTH * 0.2)
         self.playery = int((SCREENHEIGHT - PLAYER_HEIGHT) / 2)
         self.basex = 0
-        self.baseShift = IMAGES['base'].get_width() - BACKGROUND_WIDTH
+        self.baseShift = IMAGES['base'].get_width() - BACKGROUND_WIDTH # 336 - 288 = 48
 
-        newPipe1 = getRandomPipe()  # e.g. [{'y':-190, 'x':298}, {'y':230, 'x':298}]
-        newPipe2 = getRandomPipe()  # e.g. [{'y':-170, 'x':298}, {'y':250, 'x':298}]
+        # init的时候提前init好了两组pipe
+        newPipes1 = getRandomPipe()  # e.g. [{'y':-190, 'x':298}, {'y':230, 'x':298}]
+        newPipes2 = getRandomPipe()  # e.g. [{'y':-170, 'x':298}, {'y':250, 'x':298}]
         self.upperPipes = [
-            {'x': SCREENWIDTH, 'y': newPipe1[0]['y']},
-            {'x': SCREENWIDTH + (SCREENWIDTH / 2), 'y': newPipe2[0]['y']},
+            {'x': SCREENWIDTH, 'y': newPipes1[0]['y']},
+            {'x': SCREENWIDTH + (SCREENWIDTH / 2), 'y': newPipes2[0]['y']},
         ]  # e.g. [{'y':-190, 'x':298}, {'y':-170, 'x':432}]
         self.lowerPipes = [
-            {'x': SCREENWIDTH, 'y': newPipe1[1]['y']},
-            {'x': SCREENWIDTH + (SCREENWIDTH / 2), 'y': newPipe2[1]['y']},
+            {'x': SCREENWIDTH, 'y': newPipes1[1]['y']},
+            {'x': SCREENWIDTH + (SCREENWIDTH / 2), 'y': newPipes2[1]['y']},
         ]  # e.g. [{'y':230, 'x':298}, {'y':250, 'x':432}]
 
         # player velocity, max velocity, downward accleration, accleration on flap
@@ -92,6 +96,7 @@ class GameState:
         if sum(input_actions) != 1:
             raise ValueError('Multiple input actions!')
 
+        # player's movement
         # input_actions[0] == 1: do nothing
         # input_actions[1] == 1: flap the bird
         if input_actions[1] == 1:
@@ -99,30 +104,20 @@ class GameState:
                 self.playerVelY = self.playerFlapAcc
                 self.playerFlapped = True
                 # SOUNDS['wing'].play()
-
-        # check for score
-        playerMidPos = self.playerx + PLAYER_WIDTH / 2
-        for pipe in self.upperPipes:
-            pipeMidPos = pipe['x'] + PIPE_WIDTH / 2
-            if pipeMidPos <= playerMidPos < pipeMidPos + 4:
-                self.score += 1
-                # SOUNDS['point'].play()
-                reward = 1
+        if self.playerVelY < self.playerMaxVelY and not self.playerFlapped:
+            self.playerVelY += self.playerAccY
+        if self.playerFlapped:
+            self.playerFlapped = False
+        # 以上计算好应有的y方向上的速度，下面得出下一帧bird新的位置
+        self.playery += min(self.playerVelY, BASEY - self.playery - PLAYER_HEIGHT)
+        if self.playery < 0:
+            self.playery = 0
 
         # playerIndex basex change
         if (self.loopIter + 1) % 3 == 0:
             self.playerIndex = next(PLAYER_INDEX_GEN)
         self.loopIter = (self.loopIter + 1) % 30
         self.basex = -((-self.basex + 100) % self.baseShift)
-
-        # player's movement
-        if self.playerVelY < self.playerMaxVelY and not self.playerFlapped:
-            self.playerVelY += self.playerAccY
-        if self.playerFlapped:
-            self.playerFlapped = False
-        self.playery += min(self.playerVelY, BASEY - self.playery - PLAYER_HEIGHT)
-        if self.playery < 0:
-            self.playery = 0
 
         # move pipes to left
         for uPipe, lPipe in zip(self.upperPipes, self.lowerPipes):
@@ -140,6 +135,15 @@ class GameState:
             self.upperPipes.pop(0)
             self.lowerPipes.pop(0)
 
+        # check for score
+        playerMidPos = self.playerx + PLAYER_WIDTH / 2
+        for pipe in self.upperPipes:
+            pipeMidPos = pipe['x'] + PIPE_WIDTH / 2
+            if pipeMidPos <= playerMidPos < pipeMidPos + 4:
+                self.score += 1
+                # SOUNDS['point'].play()
+                reward = 3
+
         # check if crash here
         isCrash = checkCrash({'x': self.playerx, 'y': self.playery,
                               'index': self.playerIndex},
@@ -152,7 +156,7 @@ class GameState:
             # SOUNDS['die'].play()
             terminal = True
             self.__init__()
-            reward = -1
+            reward = -3
 
         # draw sprites
         SCREEN.blit(IMAGES['background'], (0, 0))
@@ -171,6 +175,8 @@ class GameState:
         pygame.display.update()
         FPSCLOCK.tick(FPS)
         # print(self.upperPipes[0]['y'] + PIPE_HEIGHT - int(BASEY * 0.2))
+        # 注意这个image_data传的是新的
+
         return image_data, reward, terminal, score_return
 
         # # pygame.surfarray.array3d()
@@ -235,14 +241,14 @@ def showScore(score):
 def checkCrash(player, upperPipes, lowerPipes):
     """returns True if player collders with base or pipes."""
     pi = player['index']
-    player['w'] = IMAGES['player'][0].get_width()
-    player['h'] = IMAGES['player'][0].get_height()
+    player['w'] = IMAGES['player'][0].get_width()  # 32
+    player['h'] = IMAGES['player'][0].get_height() # 32
 
     # if player crashes into ground
     # The coordinate origin of Pygame (0,0) is located in the upper left corner.
-    if player['y'] + player['h'] >= BASEY - 1:
+    if player['y'] + player['h'] >= BASEY - 1: # 撞地面
         return True
-    else:
+    else:   # 撞管道
         playerRect = pygame.Rect(player['x'], player['y'],
                                  player['w'], player['h'])
 
@@ -265,7 +271,7 @@ def checkCrash(player, upperPipes, lowerPipes):
 
     return False
 
-
+# 其实第一行代码应该就已经能比较粗略的进行碰撞比较了，利用pygame.Rect.clip()
 def pixelCollision(rect1, rect2, hitmask1, hitmask2):
     """Checks if two objects collide and not just their rects"""
     rect = rect1.clip(rect2)
@@ -275,14 +281,18 @@ def pixelCollision(rect1, rect2, hitmask1, hitmask2):
     # Returns a new rectangle that is cropped to be completely inside the argument Rect. If the two
     # rectangles do not overlap to begin with, a Rect with 0 size is returned.
 
+    # 如果没有交集，return false，如果有交集，也不一定撞上（透明区域不算撞）
     if rect.width == 0 or rect.height == 0:
         return False
 
+    # 计算交集区域在分别两个物体内部的位置
     x1, y1 = rect.x - rect1.x, rect.y - rect1.y
     x2, y2 = rect.x - rect2.x, rect.y - rect2.y
 
+    # 遍历交集区域的点，如果在分别两个物体内部的这个位置都是不透明的，就return True
     for x in range(rect.width):
         for y in range(rect.height):
             if hitmask1[x1 + x][y1 + y] and hitmask2[x2 + x][y2 + y]:
                 return True
     return False
+    # usage in testing.
