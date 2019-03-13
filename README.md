@@ -127,3 +127,6 @@ This work is highly based on the following repos:
 2. [asrivat1/DeepLearningVideoGames](https://github.com/asrivat1/DeepLearningVideoGames)
 3. [yenchenlin/DeepLearningFlappyBird](https://github.com/yenchenlin/DeepLearningFlappyBird)
 
+=======
+# DQNFlappyBird
+Playing flappy bird with DQN/DDQN and so on.
