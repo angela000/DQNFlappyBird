@@ -15,22 +15,19 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # Hyper Parameters:
-FRAME_PER_ACTION = 1            # number of frames per action.
-BATCH_SIZE = 32                 # size of mini_batch.
-OBSERVE = 1000.                 # 1000 steps to observe before training.
-EXPLORE = 1500000.              # 1500000 frames over which to anneal epsilon.
-GAMMA = 0.99                    # decay rate of past observations.
-FINAL_EPSILON = 0               # final value of epsilon.
-INITIAL_EPSILON = 0.05          # starting value of epsilon.
-REPLAY_MEMORY = 50000           # number of previous transitions to remember.
-SAVER_ITER = 10000              # number of steps when save checkpoint.
-
-COUNTERS_SIZE = 10              # calculate the average score for every 10 episodes
-average_score = []              # store the average score of ten last episodes.
-AVERAGE_SIZE = 20              # store the pic for every 500 average scores
-DIR_NAME = '/dqn/'              # name of the log directory (be different with other networks)
-SAVE_PATH = "./saved_parameters/dqn/"
-SAVE_BACK_PATH = "./saved_back/dqn/"
+FRAME_PER_ACTION = 1                    # number of frames per action.
+BATCH_SIZE = 32                         # size of mini_batch.
+OBSERVE = 1000.                         # 1000 steps to observe before training.
+EXPLORE = 1000000.                      # 1000000 frames over which to anneal epsilon.
+GAMMA = 0.99                            # decay rate of past observations.
+FINAL_EPSILON = 0                       # final value of epsilon: 0.
+INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
+REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
+SAVER_ITER = 10000                      # number of steps when save checkpoint.
+SAVE_PATH = "./saved_parameters/dqn/"   # store network parameters and other parameters for pause.
+COUNTERS_SIZE = 10                      # calculate the average score for every 10 episodes.
+STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
+DIR_NAME = '/dqn/'                      # name of the log directory (be different with other networks).
 
 
 # Brain重要接口:
@@ -43,26 +40,18 @@ class BrainDQN:
         # init replay memory
         self.replayMemory = deque()
         # init other parameters
-        self.timeStep = 0                                   # 总共第timeStep次train
-        self.onlineTimeStep = 0                             # 连续第onlineTimeStep次train
-        self.gameTimes = 0                                  # 第gameTimes次游戏
+        self.onlineTimeStep = 0
+        # saved parameters every SAVER_ITER
+        self.gameTimes = 0
+        self.timeStep = 0
         self.epsilon = INITIAL_EPSILON
-        self.records = {
-            "first_1_score_game_time": 0,
-            "first_2_score_game_time": 0,
-            "first_3_score_game_time": 0,
-            "first_5_score_game_time": 0,
-            "first_10_score_game_time": 0,
-            "first_20_score_game_time": 0,
-            "first_50_score_game_time": 0,
-            "max_score": 0,
-            "max_score_game_time": 0
-        }
+        self.saved_parameters_file_path = SAVE_PATH + self.gameName + '-saved-parameters.txt'
+        # logs, append to file every SAVER_ITER
+        self.logs_path = "./logs_" + self.gameName + DIR_NAME   # "logs_bird/dqn/"
         self.lost_hist = []
-        self.logs_path = "./logs_" + self.gameName + "/dqn/"
-        self.game_times_file_path = SAVE_PATH + self.gameName + '-game-times'
-        self.records_file_path = SAVE_PATH + self.gameName + '-records'
-        self.lost_hist_file_path = SAVE_PATH + self.gameName + 'lost_hist'
+        self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
+        self.scores = []
+        self.scores_file_path = self.logs_path + 'scores.txt'
         # init Q network
         self.createQNetwork()
 
@@ -112,8 +101,8 @@ class BrainDQN:
         self.cost = tf.reduce_sum(tf.square(self.yInput - Q_action))        # cost
         self.trainStep = tf.train.AdamOptimizer(1e-6).minimize(self.cost)   # cost
 
-        # load network parameters
-        self.load_network_parameters()
+        # load network and other parameters
+        self.load_saved_parameters()
 
         # Evaluation: store the last ten episodes' scores
         self.counters = []
@@ -122,8 +111,8 @@ class BrainDQN:
         tf.summary.FileWriter(self.logs_path, self.sess.graph)
 
 
-    # 恢复神经网络 / replay memory / game_times / epsilon等数据
-    def load_network_parameters(self):
+    # load network and other parameters every SAVER_ITER
+    def load_saved_parameters(self):
         self.saver = tf.train.Saver()
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
@@ -131,22 +120,13 @@ class BrainDQN:
         if checkpoint and checkpoint.model_checkpoint_path:
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
-            # 根据model_checkpoint_path得到step
-            path_ = checkpoint.model_checkpoint_path
-            self.timeStep = int((path_.split('-'))[-1])
-            if self.timeStep > OBSERVE and self.timeStep <= OBSERVE + EXPLORE:
-                self.epsilon = INITIAL_EPSILON - (self.timeStep - OBSERVE) * \
-                               (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
-            else:
-                self.epsilon = FINAL_EPSILON
             # restore other params.
-            if os.path.exists(self.game_times_file_path) and os.path.getsize(self.game_times_file_path) > 0:
-                self.gameTimes = pickle.load(open(self.game_times_file_path, 'rb'))
-            if os.path.exists(self.records_file_path + "_timeStep_" + str(self.timeStep)) and \
-                    os.path.getsize(self.records_file_path + "_timeStep_" + str(self.timeStep)) > 0:
-                self.records = pickle.load(open(self.records_file_path + "_timeStep_" + str(self.timeStep), 'rb'))
-            if os.path.exists(self.lost_hist_file_path) and os.path.getsize(self.lost_hist_file_path) > 0:
-                self.lost_hist = pickle.load(open(self.lost_hist_file_path, 'rb'))
+            if os.path.exists(self.saved_parameters_file_path) and os.path.getsize(self.saved_parameters_file_path) > 0:
+                saved_parameters_file = open(self.saved_parameters_file_path, 'rb')
+                self.gameTimes = pickle.load(saved_parameters_file)
+                self.timeStep = pickle.load(saved_parameters_file)
+                self.epsilon = pickle.load(saved_parameters_file)
+                saved_parameters_file.close()
         else:
             # Re-train the network from zero.
             print("Could not find old network weights")
@@ -185,17 +165,12 @@ class BrainDQN:
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
             self.saver.save(self.sess, SAVE_PATH + self.gameName + '-dqn', global_step=self.timeStep)
-            pickle.dump(self.gameTimes, open(self.game_times_file_path, 'wb'))
-            pickle.dump(self.records, open(self.records_file_path + "_timeStep_" + str(self.timeStep), 'wb'))
-            pickle.dump(self.lost_hist, open(self.lost_hist_file_path, 'wb'))
-        # pic the loss function every 1,000,000 iteration
-        if self.timeStep % 1000000 == 0:
-            plt.figure()
-            plt.plot(self.lost_hist)
-            plt.ylabel('lost')
-            plt.savefig(self.lost_hist_file_path + "_steps_" + str(self.timeStep)
-                        + "_lost_hist.png")
-            del self.lost_hist[:]
+            saved_parameters_file = open(self.saved_parameters_file_path, 'wb')
+            pickle.dump(self.gameTimes, saved_parameters_file)
+            pickle.dump(self.timeStep, saved_parameters_file)
+            pickle.dump(self.epsilon, saved_parameters_file)
+            saved_parameters_file.close()
+            self.save_lost_and_score_to_file()
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
@@ -221,7 +196,7 @@ class BrainDQN:
 
         if terminal:
             self.gameTimes += 1
-            self.counter_add(self.counters, curScore, self.timeStep, self.gameTimes)
+            self.counter_add(curScore)
         self.currentState = newState
         self.timeStep += 1
         self.onlineTimeStep += 1
@@ -251,39 +226,47 @@ class BrainDQN:
         self.currentState = np.stack((observ, observ, observ, observ), axis = 2)
 
 
-    # 当一局游戏结束，会调用此方法进行记录
-    def counter_add(self, counters, curScore, steps, gameTimes):
-        print("GAME_TIMES:" + str(gameTimes))
-        self.update_records(curScore, gameTimes)
-        counters.append(curScore)
-        # 每10局游戏就计算平均得分并存下
-        if len(counters) == COUNTERS_SIZE:  # 10
-            average_score.append(np.mean(counters))
-            # 每5000局游戏画一张图（500个点），主要是要有max_size个点. 计划训练3000局。
-            if len(average_score) >= AVERAGE_SIZE:
-                plt.figure()
-                plt.plot(average_score)
-                plt.ylabel('score')
-                plt.savefig(self.logs_path + "steps_" + str(steps) + '_gameTimes_' + str(gameTimes) + "_average_score.png")
-                fo = open(self.logs_path + "steps_" + str(steps) + '_gameTimes_' + str(gameTimes)  + "_average_score.txt", "w")
-                fo.write(str(average_score))
-                fo.close()
-                del average_score[:]
-            del counters[:]
+    # Called when each game ends
+    def counter_add(self, curScore):
+        print("GAME_TIMES:" + str(self.gameTimes))
+        self.scores.append(curScore)
+        self.check_if_end(curScore)
 
-    def update_records(self, curScore, gameTimes):
-        if curScore == 1 and self.records["first_1_score_game_time"] == 0:
-            self.records["first_1_score_game_time"] = gameTimes
-        elif curScore == 2 and self.records["first_2_score_game_time"] == 0:
-            self.records["first_2_score_game_time"] = gameTimes
-        elif curScore >= 3 and curScore < 5 and self.records["first_3_score_game_time"] == 0:
-            self.records["first_3_score_game_time"] = gameTimes
-        elif curScore >= 5 and curScore < 10 and self.records["first_5_score_game_time"] == 0:
-            self.records["first_5_score_game_time"] = gameTimes
-        elif curScore >= 10 and curScore < 50 and self.records["first_10_score_game_time"] == 0:
-            self.records["first_10_score_game_time"] = gameTimes
-        elif curScore >= 50 and self.records["first_50_score_game_time"] == 0:
-            self.records["first_50_score_game_time"] = gameTimes
-        if curScore > self.records["max_score"]:
-            self.records["max_score"] = curScore
-            self.records["max_score_game_time"] = gameTimes
+    # Called when the game ends.
+    def check_if_end(self, curScore):
+        if curScore > 500:
+            self.save_lost_and_score_to_file()
+            self.get_lost_and_score_from_file()
+            lost_hist_file = open(self.lost_hist_file_path, 'r')
+            plt.figure()
+            plt.plot(self.lost_hist)
+            plt.ylabel('lost')
+            plt.savefig(self.lost_hist_file_path + "_total.png")
+            lost_hist_file.close()
+
+            scores_file = open(self.scores_file_path, 'r')
+            plt.figure()
+            plt.plot(self.scores)
+            plt.ylabel('score')
+            plt.savefig(self.scores_file_path + "_total.png")
+            scores_file.close()
+
+    def save_lost_and_score_to_file(self):
+        list_hist_file = open(self.lost_hist_file_path, 'a')
+        for l in self.lost_hist:
+            list_hist_file.write(str(l) + ' ')
+        list_hist_file.close()
+        del self.lost_hist[:]
+        scores_file = open(self.scores_file_path, 'a')
+        for s in self.scores:
+            scores_file.write(str(s) + ' ')
+        scores_file.close()
+        del self.scores[:]
+
+    def get_lost_and_score_from_file(self):
+        lost_hist_file = open(self.lost_hist_file_path, 'a')
+        self.lost_hist = lost_hist_file.readline().split(" ")
+        lost_hist_file.close()
+        scores_file = open(self.scores_file_path, 'a')
+        self.scores = scores_file.readline().split(" ")
+        scores_file.close()
