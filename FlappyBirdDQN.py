@@ -7,7 +7,7 @@
 import sys
 sys.path.append("game/")
 import cv2
-import wrapped_flappy_bird as game
+import game.wrapped_flappy_bird as game
 from BrainDQN import BrainDQN
 import BrainDQNNature
 import BrainPrioritizedReplyDQN
