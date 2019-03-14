@@ -2,7 +2,7 @@ import numpy as np
 import sys
 import random
 import pygame
-from . import flappy_bird_utils
+import flappy_bird_utils
 import pygame.surfarray as surfarray
 from pygame.locals import *
 from itertools import cycle
@@ -33,7 +33,7 @@ AVERAGE_SIZE = 500  # the length of average_score to print a png. 500
 
 pygame.init()
 FPSCLOCK = pygame.time.Clock()
-SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT))
+SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT),pygame.NOFRAME)
 pygame.display.set_caption('Flappy Bird')
 
 IMAGES, SOUNDS, HITMASKS = flappy_bird_utils.load()
