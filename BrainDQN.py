@@ -171,6 +171,9 @@ class BrainDQN:
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
             self.save_lost_and_score_to_file()
+        if self.timeStep == STOP_STEP:
+            self.end_the_game()
+
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
@@ -196,7 +199,8 @@ class BrainDQN:
 
         if terminal:
             self.gameTimes += 1
-            self.counter_add(curScore)
+            print("GAME_TIMES:" + str(self.gameTimes))
+            self.scores.append(curScore)
         self.currentState = newState
         self.timeStep += 1
         self.onlineTimeStep += 1
@@ -225,31 +229,19 @@ class BrainDQN:
     def setInitState(self, observ):
         self.currentState = np.stack((observ, observ, observ, observ), axis = 2)
 
-
-    # Called when each game ends
-    def counter_add(self, curScore):
-        print("GAME_TIMES:" + str(self.gameTimes))
-        self.scores.append(curScore)
-        self.check_if_end(curScore)
-
     # Called when the game ends.
-    def check_if_end(self, curScore):
-        if curScore > 500:
-            self.save_lost_and_score_to_file()
-            self.get_lost_and_score_from_file()
-            lost_hist_file = open(self.lost_hist_file_path, 'r')
-            plt.figure()
-            plt.plot(self.lost_hist)
-            plt.ylabel('lost')
-            plt.savefig(self.lost_hist_file_path + "_total.png")
-            lost_hist_file.close()
+    def end_the_game(self):
+        self.save_lost_and_score_to_file()
+        self.get_lost_and_score_from_file()
+        plt.figure()
+        plt.plot(self.lost_hist)
+        plt.ylabel('lost')
+        plt.savefig(self.logs_path + "lost_hist_total.png")
 
-            scores_file = open(self.scores_file_path, 'r')
-            plt.figure()
-            plt.plot(self.scores)
-            plt.ylabel('score')
-            plt.savefig(self.scores_file_path + "_total.png")
-            scores_file.close()
+        plt.figure()
+        plt.plot(self.scores)
+        plt.ylabel('score')
+        plt.savefig(self.logs_path + "scores_total.png")
 
     def save_lost_and_score_to_file(self):
         list_hist_file = open(self.lost_hist_file_path, 'a')
@@ -264,9 +256,16 @@ class BrainDQN:
         del self.scores[:]
 
     def get_lost_and_score_from_file(self):
-        lost_hist_file = open(self.lost_hist_file_path, 'a')
-        self.lost_hist = lost_hist_file.readline().split(" ")
-        lost_hist_file.close()
-        scores_file = open(self.scores_file_path, 'a')
-        self.scores = scores_file.readline().split(" ")
+        scores_file = open(self.scores_file_path, 'r')
+        scores_str = scores_file.readline().split(" ")
+        scores_str = scores_str[0:-1]
+        self.scores = list(map(eval, scores_str))
         scores_file.close()
+
+        lost_hist_file = open(self.lost_hist_file_path, 'r')
+        lost_hist_list_str = lost_hist_file.readline().split(" ")
+        lost_hist_list_str = lost_hist_list_str[0:-1]
+        self.lost_hist = list(map(eval, lost_hist_list_str))
+        # self.lost_hist = map(lambda x: float(x), lost_hist_list)
+        lost_hist_file.close()
+
