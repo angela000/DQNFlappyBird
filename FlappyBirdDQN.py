@@ -10,6 +10,7 @@ import cv2
 import game.wrapped_flappy_bird as game
 from BrainDQN import BrainDQN
 import BrainDQNNature
+# from BrainDQNNature_CC import BrainDQN
 import BrainPrioritizedReplyDQN
 import BrainDoubleDQN
 import BrainDuelingDQN

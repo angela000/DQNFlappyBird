@@ -24,11 +24,11 @@ FINAL_EPSILON = 0                       # final value of epsilon: 0.
 INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
 SAVER_ITER = 10000                      # number of steps when save checkpoint.
-SAVE_PATH = "./saved_parameters/dqn/"   # store network parameters and other parameters for pause.
+SAVE_PATH = "./saved_parameters/dqn_nature/"   # store network parameters and other parameters for pause.
 COUNTERS_SIZE = 10                      # calculate the average score for every 10 episodes.
 STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
-DIR_NAME = '/dqn/'                      # name of the log directory (be different with other networks).
-
+DIR_NAME = '/dqn_nature/'                      # name of the log directory (be different with other networks).
+REPLACE_TARGET_ITER = 500               # number of steps when target net parameters update
 
 # Brain重要接口:
 # getAction():      根据self.currentState选择action
@@ -47,7 +47,7 @@ class BrainDQN:
         self.epsilon = INITIAL_EPSILON
         self.saved_parameters_file_path = SAVE_PATH + self.gameName + '-saved-parameters.txt'
         # logs, append to file every SAVER_ITER
-        self.logs_path = "./logs_" + self.gameName + DIR_NAME   # "logs_bird/dqn/"
+        self.logs_path = "./logs_" + self.gameName + DIR_NAME   # "logs_bird/dqn_nature/"
         self.lost_hist = []
         self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
         self.scores = []
@@ -58,61 +58,94 @@ class BrainDQN:
         # init Q network
         self.createQNetwork()
 
-
     def createQNetwork(self):
         # input layer
-        self.stateInput = tf.placeholder("float", [None, 80, 80, 4])
-        # conv layer 1
-        W_conv1 = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01))
-        b_conv1 = tf.Variable(tf.constant(0.01, shape=[32]))
-        h_conv1 = tf.nn.conv2d(self.stateInput, W_conv1, strides=[1, 4, 4, 1], padding="SAME")
-        h_relu1 = tf.nn.relu(h_conv1 + b_conv1)
-        # [None, 20, 20, 32]
-        h_pool1 = tf.nn.max_pool(h_relu1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
-        # [None, 10, 10, 32]
-        # conv layer 2
-        W_conv2 = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
-        b_conv2 = tf.Variable(tf.constant(0.01, shape=[64]))
-        h_conv2 = tf.nn.conv2d(h_pool1, W_conv2, strides=[1, 2, 2, 1], padding="SAME")
-        h_relu2 = tf.nn.relu(h_conv2 + b_conv2)
-        # [None, 5, 5, 64]
-        # conv layer 3
-        W_conv3 = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01))
-        b_conv3 = tf.Variable(tf.constant(0.01, shape=[64]))
-        h_conv3 = tf.nn.conv2d(h_relu2, W_conv3, strides=[1, 1, 1, 1], padding="SAME")
-        h_relu3 = tf.nn.relu(h_conv3 + b_conv3)
-        # [None, 5, 5, 64]
-        # reshape layer
-        h_conv3_flat = tf.reshape(h_relu3, [-1, 1600])
-        # [None, 1600]
-        # full layer
-        W_fc1 = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01))
-        b_fc1 = tf.Variable(tf.constant(0.01, shape=[512]))
-        h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, W_fc1) + b_fc1)
-        # [None, 512]
-        # reader layer 1
-        W_fc2 = tf.Variable(tf.truncated_normal([512, self.actionNum], stddev=0.01))
-        b_fc2 = tf.Variable(tf.constant(0.01, shape=[self.actionNum]))
+        with tf.variable_scope("eval_net"):
+            self.eval_net_input = tf.placeholder("float", [None, 80, 80, 4])
+            # conv layer 1
+            W_conv1_e = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01))
+            b_conv1_e = tf.Variable(tf.constant(0.01, shape=[32]))
 
-        self.QValue = tf.matmul(h_fc1, W_fc2) + b_fc2
-        # [None, 2]
+            h_conv1_e = tf.nn.conv2d(self.eval_net_input, W_conv1_e, strides=[1, 4, 4, 1], padding="SAME")
+            h_relu1_e = tf.nn.relu(h_conv1_e + b_conv1_e)  # [None, 20, 20, 32]
+            h_pool1_e = tf.nn.max_pool(h_relu1_e, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
+            # [None, 10, 10, 32]
+            # conv layer 2
+            W_conv2_e = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
+            b_conv2_e = tf.Variable(tf.constant(0.01, shape=[64]))
 
-        # build train network
-        self.actionInput = tf.placeholder("float", [None, self.actionNum])  # [0 ,1] or [1, 0]
-        Q_action = tf.reduce_sum(tf.multiply(self.QValue, self.actionInput),
-                                 reduction_indices=1)                       # Q-value
-        self.yInput = tf.placeholder("float", [None])                       # target-Q-value
-        self.cost = tf.reduce_sum(tf.square(self.yInput - Q_action))        # cost
-        self.trainStep = tf.train.AdamOptimizer(1e-6).minimize(self.cost)   # cost
+            h_conv2_e = tf.nn.conv2d(h_pool1_e, W_conv2_e, strides=[1, 2, 2, 1], padding="SAME")
+            h_relu2_e = tf.nn.relu(h_conv2_e + b_conv2_e)  # [None, 5, 5, 64]
+            # conv layer 3
+            W_conv3_e = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01))
+            b_conv3_e = tf.Variable(tf.constant(0.01, shape=[64]))
 
-        # load network and other parameters
-        self.load_saved_parameters()
+            h_conv3_e = tf.nn.conv2d(h_relu2_e, W_conv3_e, strides=[1, 1, 1, 1], padding="SAME")
+            h_relu3_e = tf.nn.relu(h_conv3_e + b_conv3_e)  # [None, 5, 5, 64]
+            # full layer
+            W_fc1_e = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01))
+            b_fc1_e = tf.Variable(tf.constant(0.01, shape=[512]))
 
-        # Evaluation: store the last ten episodes' scores
-        self.counters = []
+            h_conv3_flat_e = tf.reshape(h_relu3_e, [-1, 1600])  # [None, 1600]
+            h_fc1_e = tf.nn.relu(tf.matmul(h_conv3_flat_e, W_fc1_e) + b_fc1_e)  # [None, 512]
+            # reader layer 1
+            W_fc2_e = tf.Variable(tf.truncated_normal([512, self.actionNum], stddev=0.01))
+            b_fc2_e = tf.Variable(tf.constant(0.01, shape=[self.actionNum]))
 
-        # tensorboard
-        tf.summary.FileWriter(self.logs_path, self.sess.graph)
+            self.readout_e = tf.matmul(h_fc1_e, W_fc2_e) + b_fc2_e  # [None, 2]
+
+        with tf.variable_scope("target_net"):
+            self.target_net_input = tf.placeholder("float", [None, 80, 80, 4])
+            # conv layer 1
+            W_conv1_t = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01), trainable=False)
+            b_conv1_t = tf.Variable(tf.constant(0.01, shape=[32]), trainable=False)
+
+            h_conv1_t = tf.nn.conv2d(self.target_net_input, W_conv1_t, strides=[1, 4, 4, 1], padding="SAME")
+            h_relu1_t = tf.nn.relu(h_conv1_t + b_conv1_t)  # [None, 20, 20, 32]
+            h_pool1_t = tf.nn.max_pool(h_relu1_t, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
+            # [None, 10, 10, 32]
+            # conv layer 2
+            W_conv2_t = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01), trainable=False)
+            b_conv2_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
+
+            h_conv2_t = tf.nn.conv2d(h_pool1_t, W_conv2_t, strides=[1, 2, 2, 1], padding="SAME")
+            h_relu2_t = tf.nn.relu(h_conv2_t + b_conv2_t)  # [None, 5, 5, 64]
+            # conv layer 3
+            W_conv3_t = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01), trainable=False)
+            b_conv3_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
+
+            h_conv3_t = tf.nn.conv2d(h_relu2_t, W_conv3_t, strides=[1, 1, 1, 1], padding="SAME")
+            h_relu3_t = tf.nn.relu(h_conv3_t + b_conv3_t)  # [None, 5, 5, 64]
+            # full layer
+            W_fc1_t = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01), trainable=False)
+            b_fc1_t = tf.Variable(tf.constant(0.01, shape=[512]), trainable=False)
+
+            h_conv3_flat_t = tf.reshape(h_relu3_t, [-1, 1600])  # [None, 1600]
+            h_fc1_t = tf.nn.relu(tf.matmul(h_conv3_flat_t, W_fc1_t) + b_fc1_t)  # [None, 512]
+            # reader layer 1
+            W_fc2_t = tf.Variable(tf.truncated_normal([512, self.actionNum], stddev=0.01), trainable=False)
+            b_fc2_t = tf.Variable(tf.constant(0.01, shape=[self.actionNum]), trainable=False)
+
+            self.readout_t = tf.matmul(h_fc1_t, W_fc2_t) + b_fc2_t  # [None, 2]
+
+            # parameter transfer
+            t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_net')
+            e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='eval_net')
+
+            with tf.variable_scope('soft_replacement'):
+                self.target_replace_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
+
+            # build train network
+            self.action_input = tf.placeholder("float", [None, self.actionNum])
+            self.q_target = tf.placeholder("float", [None])
+
+            q_eval = tf.reduce_sum(tf.multiply(self.readout_e, self.action_input), axis=1)  # [None]
+            # readout_action -- reward of selected action by a.
+            self.cost = tf.reduce_mean(tf.square(self.q_target - q_eval))
+            self.train_step = tf.train.AdamOptimizer(1e-6).minimize(self.cost)
+
+            # load network and other parameters
+            self.load_saved_parameters()
 
 
     # load network and other parameters every SAVER_ITER
@@ -135,8 +168,10 @@ class BrainDQN:
             # Re-train the network from zero.
             print("Could not find old network weights")
 
-
     def trainQNetwork(self):
+        # Train the network
+        if self.timeStep % REPLACE_TARGET_ITER == 0:
+            self.sess.run(self.target_replace_op)
         # Step1: obtain random minibatch from replay memory
         minibatch = random.sample(self.replayMemory, BATCH_SIZE)
         state_batch = [data[0] for data in minibatch]
@@ -146,9 +181,9 @@ class BrainDQN:
 
         # Step2: calculate y
         y_batch = []
-        QValue_batch = self.QValue.eval(
+        target_q_value = self.readout_t.eval(
             feed_dict={
-                self.stateInput: nextState_batch
+                self.target_net_input: nextState_batch
             }
         )
         for i in range(0, BATCH_SIZE):
@@ -156,14 +191,14 @@ class BrainDQN:
             if terminal:
                 y_batch.append(reward_batch[i])
             else:
-                y_batch.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
+                y_batch.append(reward_batch[i] + GAMMA * np.max(target_q_value[i]))
 
         _, self.lost = self.sess.run(
-            [self.trainStep, self.cost],
+            [self.train_step, self.cost],
             feed_dict={
-                self.yInput : y_batch,
-                self.actionInput : action_batch,
-                self.stateInput : state_batch
+                self.q_target : y_batch,
+                self.action_input : action_batch,
+                self.eval_net_input : state_batch
         })
         self.lost_hist.append(self.lost)
 
@@ -189,7 +224,6 @@ class BrainDQN:
         if len(self.replayMemory) > REPLAY_MEMORY:
             self.replayMemory.popleft()
         if self.onlineTimeStep > OBSERVE:
-            # Train the network
             self.trainQNetwork()
 
         # print info
@@ -215,7 +249,7 @@ class BrainDQN:
 
 
     def getAction(self):
-        QValue = self.QValue.eval(feed_dict = {self.stateInput: [self.currentState]})[0]
+        QValue = self.readout_e.eval(feed_dict = {self.eval_net_input: [self.currentState]})[0]
         action = np.zeros(self.actionNum)
         if self.timeStep % FRAME_PER_ACTION == 0:
             if random.random() <= self.epsilon:
@@ -256,8 +290,6 @@ class BrainDQN:
         plt.ylabel('rewards')
         plt.savefig(self.logs_path + "rewards_total.png")
 
-
-    # save lost/score/reward to file
     def save_lsr_to_file(self):
         list_hist_file = open(self.lost_hist_file_path, 'a')
         for l in self.lost_hist:
@@ -277,7 +309,6 @@ class BrainDQN:
         rewards_file.close()
         del self.rewards[:]
 
-
     def get_lsr_from_file(self):
         scores_file = open(self.scores_file_path, 'r')
         scores_str = scores_file.readline().split(" ")
@@ -289,6 +320,7 @@ class BrainDQN:
         lost_hist_list_str = lost_hist_file.readline().split(" ")
         lost_hist_list_str = lost_hist_list_str[0:-1]
         self.lost_hist = list(map(eval, lost_hist_list_str))
+        # self.lost_hist = map(lambda x: float(x), lost_hist_list)
         lost_hist_file.close()
 
         rewards_file = open(self.rewards_file_path, 'r')
@@ -296,6 +328,4 @@ class BrainDQN:
         rewards_str = rewards_str[0:-1]
         self.rewards = list(map(eval, rewards_str))
         rewards_file.close()
-
-
 
