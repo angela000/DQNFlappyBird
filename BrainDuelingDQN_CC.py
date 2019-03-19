@@ -25,7 +25,6 @@ INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
 SAVER_ITER = 10000                      # number of steps when save checkpoint.
 SAVE_PATH = "./saved_parameters/dueling_dqn/"   # store network parameters and other parameters for pause.
-COUNTERS_SIZE = 10                      # calculate the average score for every 10 episodes.
 STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
 DIR_NAME = '/dueling_dqn/'              # name of the log directory (be different with other networks).
 REPLACE_TARGET_ITER = 500               # number of steps when target net parameters update
