@@ -11,7 +11,8 @@ import game.wrapped_flappy_bird as game
 from BrainDQN import BrainDQN
 import BrainDQNNature
 # from BrainDQNNature_CC import BrainDQN
-import BrainPrioritizedReplyDQN
+# from BrainPrioritizedReplyDQN_CC import BrainDQN
+from BrainDoubleDQN_CC import BrainDQN
 import BrainDoubleDQN
 import BrainDuelingDQN
 import numpy as np

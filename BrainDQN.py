@@ -25,7 +25,7 @@ INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
 SAVER_ITER = 10000                      # number of steps when save checkpoint.
 SAVE_PATH = "./saved_parameters/dqn/"   # store network parameters and other parameters for pause.
-STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
+STOP_STEP = 2000000.                    # the only way to exit training. 2,000,000 time steps.
 DIR_NAME = '/dqn/'                      # name of the log directory (be different with other networks).
 
 
@@ -243,17 +243,17 @@ class BrainDQN:
         plt.figure()
         plt.plot(self.lost_hist)
         plt.ylabel('lost')
-        plt.savefig(self.logs_path + "lost_hist_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "lost_hist_total.png")
 
         plt.figure()
         plt.plot(self.scores)
         plt.ylabel('score')
-        plt.savefig(self.logs_path + "scores_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "_scores_total.png")
 
         plt.figure()
         plt.plot(self.rewards)
         plt.ylabel('rewards')
-        plt.savefig(self.logs_path + "rewards_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "rewards_total.png")
 
 
     # save lost/score/reward to file

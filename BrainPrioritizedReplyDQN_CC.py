@@ -258,6 +258,7 @@ class BrainDQN:
 
         q_eval = tf.reduce_sum(tf.multiply(self.readout_e, self.action_input), axis=1)  # [None]
         # readout_action -- reward of selected action by a.
+        self.abs_errors = tf.abs(self.q_target - q_eval)
         self.cost = tf.reduce_mean(self.ISWeights * tf.square(self.q_target - q_eval))
         self.train_step = tf.train.AdamOptimizer(1e-6).minimize(self.cost)
 
@@ -313,16 +314,16 @@ class BrainDQN:
             else:
                 y_batch.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
-        _, self.lost = self.sess.run(
-            [self.train_step, self.cost],
+        _, abs_errors, loss = self.sess.run(
+            [self.train_step, self.abs_errors, self.cost],
             feed_dict={
                 self.q_target : y_batch,
                 self.action_input : action_batch,
                 self.eval_net_input : state_batch,
                 self.ISWeights: ISWeights_value
         })
-        self.replayMemory.batch_update(tree_idx, self.lost)
-        self.lost_hist.append(self.lost)
+        self.replayMemory.batch_update(tree_idx, abs_errors)
+        self.lost_hist.append(loss)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -374,7 +375,7 @@ class BrainDQN:
 
 
     def getAction(self):
-        QValue = self.QValue.eval(feed_dict = {self.stateInput: [self.currentState]})[0]
+        QValue = self.readout_e.eval(feed_dict = {self.eval_net_input: [self.currentState]})[0]
         action = np.zeros(self.actionNum)
         if self.timeStep % FRAME_PER_ACTION == 0:
             if random.random() <= self.epsilon:

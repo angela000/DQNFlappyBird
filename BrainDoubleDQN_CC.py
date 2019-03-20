@@ -176,28 +176,27 @@ class BrainDQN:
         state_batch = [data[0] for data in minibatch]
         action_batch = [data[1] for data in minibatch]
         reward_batch = [data[2] for data in minibatch]
-        nextState_batch = [data[3] for data in minibatch]
+        next_state_batch = [data[3] for data in minibatch]
 
-        # Step2: calculate y
-        y_batch = []
+        # Step2: calculate q_target
+        q_target = []
         '''Double DQN'''
-        readout_j1_batch = self.readout_t.eval(feed_dict={self.target_net_input: state_batch})  # (32, 2)
-        readout_j1_batch_action = self.readout_e.eval(feed_dict={self.eval_net_input: state_batch})  # (32, 2)
-        max_act4next = np.argmax(readout_j1_batch_action, axis=1)
-        # 这个range(len(max_act4next))好像就是batch_size? 需要确认一下
+        readout_j1_batch = self.readout_t.eval(feed_dict={self.target_net_input: next_state_batch})  # (32, 2)
+        readout_j1_batch_for_action = self.readout_e.eval(feed_dict={self.eval_net_input: next_state_batch})  # (32, 2)
+        max_act4next = np.argmax(readout_j1_batch_for_action, axis=1)
         selected_q_next = readout_j1_batch[range(len(max_act4next)), max_act4next]  # (batch_size, 1)
         '''Double DQN'''
         for i in range(0, BATCH_SIZE):
             terminal = minibatch[i][4]
             if terminal:
-                y_batch.append(reward_batch[i])
+                q_target.append(reward_batch[i])
             else:
-                y_batch.append(reward_batch[i] + GAMMA * selected_q_next[i])
+                q_target.append(reward_batch[i] + GAMMA * selected_q_next[i])
 
         _, self.lost = self.sess.run(
             [self.train_step, self.cost],
             feed_dict={
-                self.q_target : y_batch,
+                self.q_target : q_target,
                 self.action_input : action_batch,
                 self.eval_net_input : state_batch
         })

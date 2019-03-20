@@ -5,12 +5,10 @@ import tensorflow as tf
 import pickle
 import sys
 sys.path.append("game/")
-import random
 import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from collections import deque
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
