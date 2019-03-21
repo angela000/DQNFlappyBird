@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
+from BrainDoublePrioritizedReplyDQN import BrainDoublePrioritizedReplyDQN
 from collections import deque
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -32,30 +33,7 @@ REPLACE_TARGET_ITER = 500                       # number of steps when target ne
 # Brain重要接口:
 # getAction():      根据self.currentState选择action
 # setPerception():  得到新observation之后进行记忆学习
-class BrainDQN:
-    def __init__(self, actionNum, gameName):
-        self.actionNum = actionNum
-        self.gameName = gameName
-        # init replay memory
-        self.replayMemory = deque()
-        # init other parameters
-        self.onlineTimeStep = 0
-        # saved parameters every SAVER_ITER
-        self.gameTimes = 0
-        self.timeStep = 0
-        self.epsilon = INITIAL_EPSILON
-        self.saved_parameters_file_path = SAVE_PATH + self.gameName + '-saved-parameters.txt'
-        # logs, append to file every SAVER_ITER
-        self.logs_path = "./logs_" + self.gameName + DIR_NAME   # "logs_bird/dueling_dqn/"
-        self.lost_hist = []
-        self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
-        self.scores = []
-        self.scores_file_path = self.logs_path + 'scores.txt'
-        self.total_rewards_this_episode = 0
-        self.rewards = []
-        self.rewards_file_path = self.logs_path + 'reward.txt'
-        # init Q network
-        self.createQNetwork()
+class BrainDuelingDQN(BrainDoublePrioritizedReplyDQN):
 
     def createQNetwork(self):
         # input layer
@@ -232,9 +210,9 @@ class BrainDQN:
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self.save_lsr_to_file()
-        if self.timeStep == STOP_STEP:
-            self.end_the_game()
+            self._save_lsrq_to_file()
+        if self.timeStep in RECORD_STEP:
+            self._record_by_pic()
 
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
@@ -288,64 +266,3 @@ class BrainDQN:
             self.epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
 
         return action
-
-
-    def setInitState(self, observ):
-        self.currentState = np.stack((observ, observ, observ, observ), axis = 2)
-
-    # Called when the game ends.
-    def end_the_game(self):
-        self.save_lsr_to_file()
-        self.get_lsr_from_file()
-        plt.figure()
-        plt.plot(self.lost_hist)
-        plt.ylabel('lost')
-        plt.savefig(self.logs_path + "lost_hist_total.png")
-
-        plt.figure()
-        plt.plot(self.scores)
-        plt.ylabel('score')
-        plt.savefig(self.logs_path + "scores_total.png")
-
-        plt.figure()
-        plt.plot(self.rewards)
-        plt.ylabel('rewards')
-        plt.savefig(self.logs_path + "rewards_total.png")
-
-    def save_lsr_to_file(self):
-        list_hist_file = open(self.lost_hist_file_path, 'a')
-        for l in self.lost_hist:
-            list_hist_file.write(str(l) + ' ')
-        list_hist_file.close()
-        del self.lost_hist[:]
-
-        scores_file = open(self.scores_file_path, 'a')
-        for s in self.scores:
-            scores_file.write(str(s) + ' ')
-        scores_file.close()
-        del self.scores[:]
-
-        rewards_file = open(self.rewards_file_path, 'a')
-        for r in self.rewards:
-            rewards_file.write(str(r) + ' ')
-        rewards_file.close()
-        del self.rewards[:]
-
-    def get_lsr_from_file(self):
-        scores_file = open(self.scores_file_path, 'r')
-        scores_str = scores_file.readline().split(" ")
-        scores_str = scores_str[0:-1]
-        self.scores = list(map(eval, scores_str))
-        scores_file.close()
-
-        lost_hist_file = open(self.lost_hist_file_path, 'r')
-        lost_hist_list_str = lost_hist_file.readline().split(" ")
-        lost_hist_list_str = lost_hist_list_str[0:-1]
-        self.lost_hist = list(map(eval, lost_hist_list_str))
-        lost_hist_file.close()
-
-        rewards_file = open(self.rewards_file_path, 'r')
-        rewards_str = rewards_file.readline().split(" ")
-        rewards_str = rewards_str[0:-1]
-        self.rewards = list(map(eval, rewards_str))
-        rewards_file.close()

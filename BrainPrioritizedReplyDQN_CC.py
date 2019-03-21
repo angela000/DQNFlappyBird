@@ -297,7 +297,7 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
             self._save_lsrq_to_file()
-        if self.timeStep == STOP_STEP:
+        if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 
 
