@@ -22,10 +22,8 @@ STOP_STEP = 1500000.                                # the only way to exit train
 DIR_NAME = '/policy_gradient/'                      # name of the log directory (be different with other networks).
 
 
-# Brain重要接口:
-# getAction():      根据self.currentState选择action
-# setPerception():  得到新observation之后进行记忆学习
-class BrainDQN:
+
+class BrainDQNPolicyGradient:
     def __init__(self, actionNum, gameName):
         self.actionNum = actionNum
         self.gameName = gameName

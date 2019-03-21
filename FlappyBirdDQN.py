@@ -8,11 +8,11 @@ import sys
 sys.path.append("game/")
 import cv2
 import game.wrapped_flappy_bird as game
-from BrainDQN import BrainDQN
+
 import BrainDQNNature
 # from BrainDQNNature_CC import BrainDQN
 # from BrainPrioritizedReplyDQN_CC import BrainDQN
-from BrainDoubleDQN_CC import BrainDQN
+from BrainDoubleDQN_CC import BrainDoubleDQN
 import BrainDoubleDQN
 import BrainDuelingDQN
 import numpy as np
@@ -26,7 +26,7 @@ def playFlappyBird():
     # Step 1: init BrainDQN
     actionNum = 2
     gameName = 'bird'
-    brain = BrainDQN(actionNum, gameName)
+    brain = BrainDoubleDQN(actionNum, gameName)
     # Step 2: init Flappy Bird Game
     flappyBird = game.GameState()
     # Step 3: play game

@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from collections import deque
+from BrainDQNNature_CC import BrainDQNNature
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -109,28 +109,28 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
     abs_err_upper = 1.  # clipped abs error
 
     def __init__(self, capacity):
-        self.tree = SumTree(capacity)
+        self.sum_tree = SumTree(capacity)
 
     def store(self, transition):
-        max_p = np.max(self.tree.tree[-self.tree.capacity:])
+        max_p = np.max(self.sum_tree.tree[-self.sum_tree.capacity:])
         if max_p == 0:
             max_p = self.abs_err_upper
-        self.tree.add(max_p, transition)  # set the max p for new p
+        self.sum_tree.add(max_p, transition)  # set the max p for new p
 
     def sample(self, n):
         # tt = self.tree.tree
         # dd = self.tree.data
-        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n, self.tree.data[0].size)), np.empty(
+        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n, self.sum_tree.data[0].size)), np.empty(
             (n, 1))
-        pri_seg = self.tree.total_p / n  # priority segment
+        pri_seg = self.sum_tree.total_p / n  # priority segment
         self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])  # max = 1
-
-        min_prob = np.min(self.tree.tree[-self.tree.capacity:]) / self.tree.total_p  # for later calculate ISweight
+        # tree[-self.sum_tree.capacity:] 取出了叶子节点的priority.
+        min_prob = np.min(self.sum_tree.tree[-self.sum_tree.capacity:]) / self.sum_tree.total_p  # for later calculate ISweight
         for i in range(n):
             a, b = pri_seg * i, pri_seg * (i + 1)
             v = np.random.uniform(a, b)
-            idx, p, data = self.tree.get_leaf(v)
-            prob = p / self.tree.total_p
+            idx, p, data = self.sum_tree.get_leaf(v)
+            prob = p / self.sum_tree.total_p
             # aa = prob
             # bb = min_prob
             ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
@@ -142,37 +142,16 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
         clipped_errors = np.minimum(abs_errors, self.abs_err_upper)
         ps = np.power(clipped_errors, self.alpha)
         for ti, p in zip(tree_idx, ps):
-            self.tree.update(ti, p)
+            self.sum_tree.update(ti, p)
 
 
-# Brain重要接口:
-# getAction():      根据self.currentState选择action
-# setPerception():  得到新observation之后进行记忆学习
-class BrainDQN:
+
+# BrainDQNNature改进版（记忆库的提取加入了优先级机制）
+class BrainPrioritizedReplyDQN(BrainDQNNature):
     def __init__(self, actionNum, gameName):
-        self.actionNum = actionNum
-        self.gameName = gameName
+        BrainDQNNature.__init__(actionNum, gameName)
         # init replay memory
         self.replayMemory = Memory(capacity=REPLAY_MEMORY)
-        # init other parameters
-        self.onlineTimeStep = 0
-        # saved parameters every SAVER_ITER
-        self.gameTimes = 0
-        self.timeStep = 0
-        self.epsilon = INITIAL_EPSILON
-        self.saved_parameters_file_path = SAVE_PATH + self.gameName + '-saved-parameters.txt'
-        # logs, append to file every SAVER_ITER
-        self.logs_path = "./logs_" + self.gameName + DIR_NAME   # "logs_bird/dqn/"
-        self.lost_hist = []
-        self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
-        self.scores = []
-        self.scores_file_path = self.logs_path + 'scores.txt'
-        self.total_rewards_this_episode = 0
-        self.rewards = []
-        self.rewards_file_path = self.logs_path + 'reward.txt'
-        # init Q network
-        self.createQNetwork()
-
 
     def createQNetwork(self):
         # input layer
@@ -254,40 +233,22 @@ class BrainDQN:
         # build train network
         self.action_input = tf.placeholder("float", [None, self.actionNum])
         self.q_target = tf.placeholder("float", [None])
+        '''>>>>>>PrioritizedReplyDQN'''
         self.ISWeights = tf.placeholder(tf.float32, [None, 1])
-
-        q_eval = tf.reduce_sum(tf.multiply(self.readout_e, self.action_input), axis=1)  # [None]
+        '''PrioritizedReplyDQN<<<<<<'''
+        self.q_eval = tf.reduce_sum(tf.multiply(self.readout_e, self.action_input), axis=1)  # [None]
         # readout_action -- reward of selected action by a.
-        self.abs_errors = tf.abs(self.q_target - q_eval)
-        self.cost = tf.reduce_mean(self.ISWeights * tf.square(self.q_target - q_eval))
+        self.abs_errors = tf.abs(self.q_target - self.q_eval)
+        '''>>>>>>PrioritizedReplyDQN'''
+        self.cost = tf.reduce_mean(self.ISWeights * tf.square(self.q_target - self.q_eval))
+        '''PrioritizedReplyDQN<<<<<<'''
         self.train_step = tf.train.AdamOptimizer(1e-6).minimize(self.cost)
 
         # load network and other parameters
-        self.load_saved_parameters()
+        self._load_saved_parameters()
 
 
-    # load network and other parameters every SAVER_ITER
-    def load_saved_parameters(self):
-        self.saver = tf.train.Saver()
-        self.sess = tf.InteractiveSession()
-        self.sess.run(tf.global_variables_initializer())
-        checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
-        if checkpoint and checkpoint.model_checkpoint_path:
-            self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
-            print("Successfully loaded:", checkpoint.model_checkpoint_path)
-            # restore other params.
-            if os.path.exists(self.saved_parameters_file_path) and os.path.getsize(self.saved_parameters_file_path) > 0:
-                saved_parameters_file = open(self.saved_parameters_file_path, 'rb')
-                self.gameTimes = pickle.load(saved_parameters_file)
-                self.timeStep = pickle.load(saved_parameters_file)
-                self.epsilon = pickle.load(saved_parameters_file)
-                saved_parameters_file.close()
-        else:
-            # Re-train the network from zero.
-            print("Could not find old network weights")
-
-
-    def trainQNetwork(self):
+    def _trainQNetwork(self):
         # Step1: obtain priority minibatch from replay memory
         # sample a minibatch(32) to train on
         tree_idx, batch_memory, ISWeights_value = self.replayMemory.sample(BATCH_SIZE)
@@ -300,8 +261,8 @@ class BrainDQN:
         terminal_batch = batch_memory[:, N_FEATURES + 3]
         nextState_batch = np.reshape(batch_memory[:, -N_FEATURES:], (BATCH_SIZE, 80, 80, 4))
 
-        # Step2: calculate y
-        y_batch = []
+        # Step2: calculate q_target
+        q_target = []
         QValue_batch = self.readout_t.eval(
             feed_dict={
                 self.target_net_input: nextState_batch
@@ -310,20 +271,22 @@ class BrainDQN:
         for i in range(0, BATCH_SIZE):
             terminal = terminal_batch[i]
             if terminal:
-                y_batch.append(reward_batch[i])
+                q_target.append(reward_batch[i])
             else:
-                y_batch.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
+                q_target.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
-        _, abs_errors, loss = self.sess.run(
-            [self.train_step, self.abs_errors, self.cost],
+        _, abs_errors, q_evals, loss = self.sess.run(
+            [self.train_step, self.abs_errors, self.q_eval, self.cost],
             feed_dict={
-                self.q_target : y_batch,
+                self.q_target : q_target,
                 self.action_input : action_batch,
                 self.eval_net_input : state_batch,
                 self.ISWeights: ISWeights_value
         })
         self.replayMemory.batch_update(tree_idx, abs_errors)
         self.lost_hist.append(loss)
+        self.q_targets.append(q_target)
+        self.q_evals.append(q_evals)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -333,25 +296,22 @@ class BrainDQN:
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self.save_lsr_to_file()
+            self._save_lsrq_to_file()
         if self.timeStep == STOP_STEP:
-            self.end_the_game()
+            self._record_by_pic()
 
 
-    # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
         self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
-        newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
+        newState = np.append(self.currentState[:, :, 1:], nextObserv, axis=2)
         # store the last 50000(REPLAY_MEMORY) transitions in memory
         terminal_int = self.transform_terminal(terminal)
         transition = np.hstack((self.currentState.flatten(), action, reward, terminal_int, newState.flatten()))
         self.replayMemory.store(transition)  # have high priority for newly arrived transition
-
         if self.onlineTimeStep > OBSERVE:
             # Train the network
-            self.trainQNetwork()
-
+            self._trainQNetwork()
         # print info
         if self.onlineTimeStep <= OBSERVE:
             state = "observe"
@@ -360,8 +320,8 @@ class BrainDQN:
         else:
             state = "train"
 
-        print("TIMESTEP", self.timeStep, "/ STATE", state, "/ ACTION", action[1],"/ EPSILON", self.epsilon,
-                  "/ REWARD", reward)
+        print("TIMESTEP", self.timeStep, "/ STATE", state, "/ ACTION", action[1], "/ EPSILON", self.epsilon,
+              "/ REWARD", reward)
 
         if terminal:
             self.gameTimes += 1
@@ -372,91 +332,6 @@ class BrainDQN:
         self.currentState = newState
         self.timeStep += 1
         self.onlineTimeStep += 1
-
-
-    def getAction(self):
-        QValue = self.readout_e.eval(feed_dict = {self.eval_net_input: [self.currentState]})[0]
-        action = np.zeros(self.actionNum)
-        if self.timeStep % FRAME_PER_ACTION == 0:
-            if random.random() <= self.epsilon:
-                action_index = random.randrange(self.actionNum)
-                action[action_index] = 1
-            else:
-                action_index = np.argmax(QValue)
-                action[action_index] = 1
-        else:
-            action[0] = 1
-
-        # change episilon
-        if self.epsilon > FINAL_EPSILON and self.onlineTimeStep > OBSERVE:
-            self.epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
-
-        return action
-
-
-    def setInitState(self, observ):
-        self.currentState = np.stack((observ, observ, observ, observ), axis = 2)
-
-    # Called when the game ends.
-    def end_the_game(self):
-        self.save_lsr_to_file()
-        self.get_lsr_from_file()
-        plt.figure()
-        plt.plot(self.lost_hist)
-        plt.ylabel('lost')
-        plt.savefig(self.logs_path + "lost_hist_total.png")
-
-        plt.figure()
-        plt.plot(self.scores)
-        plt.ylabel('score')
-        plt.savefig(self.logs_path + "scores_total.png")
-
-        plt.figure()
-        plt.plot(self.rewards)
-        plt.ylabel('rewards')
-        plt.savefig(self.logs_path + "rewards_total.png")
-
-
-    # save lost/score/reward to file
-    def save_lsr_to_file(self):
-        list_hist_file = open(self.lost_hist_file_path, 'a')
-        for l in self.lost_hist:
-            list_hist_file.write(str(l) + ' ')
-        list_hist_file.close()
-        del self.lost_hist[:]
-
-        scores_file = open(self.scores_file_path, 'a')
-        for s in self.scores:
-            scores_file.write(str(s) + ' ')
-        scores_file.close()
-        del self.scores[:]
-
-        rewards_file = open(self.rewards_file_path, 'a')
-        for r in self.rewards:
-            rewards_file.write(str(r) + ' ')
-        rewards_file.close()
-        del self.rewards[:]
-
-
-    def get_lsr_from_file(self):
-        scores_file = open(self.scores_file_path, 'r')
-        scores_str = scores_file.readline().split(" ")
-        scores_str = scores_str[0:-1]
-        self.scores = list(map(eval, scores_str))
-        scores_file.close()
-
-        lost_hist_file = open(self.lost_hist_file_path, 'r')
-        lost_hist_list_str = lost_hist_file.readline().split(" ")
-        lost_hist_list_str = lost_hist_list_str[0:-1]
-        self.lost_hist = list(map(eval, lost_hist_list_str))
-        lost_hist_file.close()
-
-        rewards_file = open(self.rewards_file_path, 'r')
-        rewards_str = rewards_file.readline().split(" ")
-        rewards_str = rewards_str[0:-1]
-        self.rewards = list(map(eval, rewards_str))
-        rewards_file.close()
-
 
     def transform_terminal(self, terminal):
         if terminal:
