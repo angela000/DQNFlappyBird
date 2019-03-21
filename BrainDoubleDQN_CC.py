@@ -16,21 +16,21 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # Hyper Parameters:
-FRAME_PER_ACTION = 1                    # number of frames per action.
-BATCH_SIZE = 32                         # size of mini_batch.
-OBSERVE = 1000.                         # 1000 steps to observe before training.
-EXPLORE = 1000000.                      # 1000000 frames over which to anneal epsilon.
-GAMMA = 0.99                            # decay rate of past observations.
-FINAL_EPSILON = 0                       # final value of epsilon: 0.
-INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
-REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
-SAVER_ITER = 10000                      # number of steps when save checkpoint.
-SAVE_PATH = "./saved_parameters/double_dqn/"   # store network parameters and other parameters for pause.
-STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
-DIR_NAME = '/double_dqn/'               # name of the log directory (be different with other networks).
-REPLACE_TARGET_ITER = 500               # number of steps when target net parameters update
+FRAME_PER_ACTION = 1                            # number of frames per action.
+BATCH_SIZE = 32                                 # size of mini_batch.
+OBSERVE = 1000.                                 # 1000 steps to observe before training.
+EXPLORE = 1000000.                              # 1000000 frames over which to anneal epsilon.
+GAMMA = 0.99                                    # decay rate of past observations.
+FINAL_EPSILON = 0                               # final value of epsilon: 0.
+INITIAL_EPSILON = 0.03                          # starting value of epsilon: 0.03.
+REPLAY_MEMORY = 50000                           # number of previous transitions to remember.
+SAVER_ITER = 10000                              # number of steps when save checkpoint.
+SAVE_PATH = "./saved_parameters/double_dqn/"    # store network parameters and other parameters for pause.
+RECORD_STEP = (1500000, 2000000, 2500000)       # the time steps to draw pics.
+DIR_NAME = '/double_dqn/'                       # name of the log directory (be different with other networks).
+REPLACE_TARGET_ITER = 500                       # number of steps when target net parameters update
 
-# BrainDoubleDQN: BrainDQNNature的改进版（防止过估计）      此处完全可以与BrainPrioritizedReplyDQN结合一下写出新的架构
+# BrainDoubleDQN: BrainDQNNature的改进版（防止过估计产生的较差策略）
 class BrainDoubleDQN(BrainDQNNature):
 
     def trainQNetwork(self):
@@ -79,5 +79,5 @@ class BrainDoubleDQN(BrainDQNNature):
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
             self._save_lsrq_to_file()
-        if self.timeStep == STOP_STEP:
+        if self.timeStep in RECORD_STEP:
             self._record_by_pic()

@@ -15,19 +15,19 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # Hyper Parameters:
-FRAME_PER_ACTION = 1                    # number of frames per action.
-BATCH_SIZE = 32                         # size of mini_batch.
-OBSERVE = 1000.                         # 1000 steps to observe before training.
-EXPLORE = 1000000.                      # 1000000 frames over which to anneal epsilon.
-GAMMA = 0.99                            # decay rate of past observations.
-FINAL_EPSILON = 0                       # final value of epsilon: 0.
-INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
-REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
-SAVER_ITER = 10000                      # number of steps when save checkpoint.
+FRAME_PER_ACTION = 1                            # number of frames per action.
+BATCH_SIZE = 32                                 # size of mini_batch.
+OBSERVE = 1000.                                 # 1000 steps to observe before training.
+EXPLORE = 1000000.                              # 1000000 frames over which to anneal epsilon.
+GAMMA = 0.99                                    # decay rate of past observations.
+FINAL_EPSILON = 0                               # final value of epsilon: 0.
+INITIAL_EPSILON = 0.03                          # starting value of epsilon: 0.03.
+REPLAY_MEMORY = 50000                           # number of previous transitions to remember.
+SAVER_ITER = 10000                              # number of steps when save checkpoint.
 SAVE_PATH = "./saved_parameters/dueling_dqn/"   # store network parameters and other parameters for pause.
-STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
-DIR_NAME = '/dueling_dqn/'              # name of the log directory (be different with other networks).
-REPLACE_TARGET_ITER = 500               # number of steps when target net parameters update
+RECORD_STEP = (1500000, 2000000, 2500000)       # the time steps to draw pics.
+DIR_NAME = '/dueling_dqn/'                      # name of the log directory (be different with other networks).
+REPLACE_TARGET_ITER = 500                       # number of steps when target net parameters update
 
 # Brain重要接口:
 # getAction():      根据self.currentState选择action
@@ -202,8 +202,8 @@ class BrainDQN:
         nextState_batch = [data[3] for data in minibatch]
 
         # Step2: calculate y
-        y_batch = []
-        target_q_value = self.readout_t.eval(
+        q_target = []
+        next_q_value = self.readout_t.eval(
             feed_dict={
                 self.target_net_input: nextState_batch
             }
@@ -211,14 +211,14 @@ class BrainDQN:
         for i in range(0, BATCH_SIZE):
             terminal = minibatch[i][4]
             if terminal:
-                y_batch.append(reward_batch[i])
+                q_target.append(reward_batch[i])
             else:
-                y_batch.append(reward_batch[i] + GAMMA * np.max(target_q_value[i]))
+                q_target.append(reward_batch[i] + GAMMA * np.max(next_q_value[i]))
 
         _, self.lost = self.sess.run(
             [self.train_step, self.cost],
             feed_dict={
-                self.q_target : y_batch,
+                self.q_target : q_target,
                 self.action_input : action_batch,
                 self.eval_net_input : state_batch
         })

@@ -15,19 +15,19 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 # Hyper Parameters:
-FRAME_PER_ACTION = 1                    # number of frames per action.
-BATCH_SIZE = 32                         # size of mini_batch.
-OBSERVE = 1000.                         # 1000 steps to observe before training.
-EXPLORE = 1000000.                      # 1000000 frames over which to anneal epsilon.
-GAMMA = 0.99                            # decay rate of past observations.
-FINAL_EPSILON = 0                       # final value of epsilon: 0.
-INITIAL_EPSILON = 0.03                  # starting value of epsilon: 0.03.
-REPLAY_MEMORY = 50000                   # number of previous transitions to remember.
-SAVER_ITER = 10000                      # number of steps when save checkpoint.
-SAVE_PATH = "./saved_parameters/prioritized_reply_dqn/"   # store network parameters and other parameters for pause.
-STOP_STEP = 1500000.                    # the only way to exit training. 1,500,000 time steps.
-DIR_NAME = '/prioritized_reply_dqn/'    # name of the log directory (be different with other networks).
-N_FEATURES = 80 * 80 * 4                # number of features
+FRAME_PER_ACTION = 1                                        # number of frames per action.
+BATCH_SIZE = 32                                             # size of mini_batch.
+OBSERVE = 1000.                                             # 1000 steps to observe before training.
+EXPLORE = 1000000.                                          # 1000000 frames over which to anneal epsilon.
+GAMMA = 0.99                                                # decay rate of past observations.
+FINAL_EPSILON = 0                                           # final value of epsilon: 0.
+INITIAL_EPSILON = 0.03                                      # starting value of epsilon: 0.03.
+REPLAY_MEMORY = 50000                                       # number of previous transitions to remember.
+SAVER_ITER = 10000                                          # number of steps when save checkpoint.
+SAVE_PATH = "./saved_parameters/prioritized_reply_dqn/"     # store network parameters and other parameters for pause.
+RECORD_STEP = (1500000, 2000000, 2500000)                   # the time steps to draw pics.
+DIR_NAME = '/prioritized_reply_dqn/'                        # name of the log directory (be different with other networks).
+N_FEATURES = 80 * 80 * 4                                    # number of features
 
 class SumTree(object):
     """
