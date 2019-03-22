@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from BrainDQNNature_CC import BrainDQNNature
+from BrainDQNNature import BrainDQNNature
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -35,7 +35,6 @@ class SumTree(object):
     https://github.com/jaara/AI-blog/blob/master/SumTree.py
     Story the data with it priority in tree and data frameworks.
     """
-    data_pointer = 0
 
     def __init__(self, capacity):
         self.capacity = capacity  # for all priority values
@@ -45,6 +44,8 @@ class SumTree(object):
         self.data = np.zeros(capacity, dtype=object)  # for all transitions
         # [--------------data frame-------------]
         #             size: capacity
+        self.size = 0
+        self.data_pointer = 0
 
     def add(self, p, data):
         tree_idx = self.data_pointer + self.capacity - 1
@@ -54,6 +55,8 @@ class SumTree(object):
         self.data_pointer += 1
         if self.data_pointer >= self.capacity:  # replace when exceed the capacity
             self.data_pointer = 0
+        if self.size < self.capacity:
+            self.size += 1
 
     def update(self, tree_idx, p):
         change = p - self.tree[tree_idx]
@@ -62,6 +65,9 @@ class SumTree(object):
         while tree_idx != 0:  # this method is faster than the recursive loop in the reference code
             tree_idx = (tree_idx - 1) // 2
             self.tree[tree_idx] += change
+
+    def get_min(self):
+        return min(self.tree[self.capacity-1 : self.capacity + self.size - 1])/self.total_p
 
     def get_leaf(self, v):
         """
@@ -124,8 +130,6 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
             (n, 1))
         pri_seg = self.sum_tree.total_p / n  # priority segment
         self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])  # max = 1
-        # tree[-self.sum_tree.capacity:] 取出了叶子节点的priority.
-        min_prob = np.min(self.sum_tree.tree[-self.sum_tree.capacity:]) / self.sum_tree.total_p  # for later calculate ISweight
         for i in range(n):
             a, b = pri_seg * i, pri_seg * (i + 1)
             v = np.random.uniform(a, b)
@@ -133,6 +137,7 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
             prob = p / self.sum_tree.total_p
             # aa = prob
             # bb = min_prob
+            min_prob = self.sum_tree.get_min()
             ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
             b_idx[i], b_memory[i, :] = idx, data
         return b_idx, b_memory, ISWeights
@@ -359,5 +364,3 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
             return 1
         else:
             return 0
-
-
