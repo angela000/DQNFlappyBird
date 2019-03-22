@@ -24,10 +24,7 @@ FINAL_EPSILON = 0                           # final value of epsilon: 0.
 INITIAL_EPSILON = 0.03                      # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                       # number of previous transitions to remember.
 SAVER_ITER = 10000                          # number of steps when save checkpoint.
-SAVE_PATH = "./saved_parameters/dqn/"       # store network parameters and other parameters for pause.
 RECORD_STEP = (1500000, 2000000, 2500000)   # the time steps to draw pics.
-DIR_NAME = '/dqn/'                          # name of the log directory (be different with other networks).
-
 
 # BrainDQN: DQN（记忆库）
 class BrainDQN:
@@ -41,10 +38,12 @@ class BrainDQN:
         # saved parameters every SAVER_ITER
         self.gameTimes = 0
         self.timeStep = 0
-        self.epsilon = INITIAL_EPSILON
-        self.saved_parameters_file_path = SAVE_PATH + self.gameName + '-saved-parameters.txt'
+        self.epsilon = INITIAL_EPSILON          # 需要在这里判断self的具体的类。才能知道文件夹是哪个。
+        self._setDirName()
         # logs, append to file every SAVER_ITER
-        self.logs_path = "./logs_" + self.gameName + DIR_NAME   # "logs_bird/dqn/"
+        self.save_path = "./saved_parameters" + self.dir_name  # store network parameters and other parameters for pause.
+        self.saved_parameters_file_path = self.save_path + self.gameName + '-saved-parameters.txt'
+        self.logs_path = "./logs_" + self.gameName + self.dir_name   # "logs_bird/dqn/"
         self.lost_hist = []
         self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
         self.scores = []
@@ -58,6 +57,9 @@ class BrainDQN:
         self.q_evals_file_path = self.logs_path + 'q_eval.txt'
         # init Q network
         self._createQNetwork()
+
+    def _setDirName(self):
+        self.dir_name = "/dqn/"
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
@@ -174,7 +176,7 @@ class BrainDQN:
         self.saver = tf.train.Saver()
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
-        checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
+        checkpoint = tf.train.get_checkpoint_state(self.save_path)
         if checkpoint and checkpoint.model_checkpoint_path:
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
@@ -224,7 +226,7 @@ class BrainDQN:
         self.q_evals.append(q_eval)
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
-            self.saver.save(self.sess, SAVE_PATH + self.gameName, global_step=self.timeStep)
+            self.saver.save(self.sess, self.save_path + self.gameName, global_step=self.timeStep)
             saved_parameters_file = open(self.saved_parameters_file_path, 'wb')
             pickle.dump(self.gameTimes, saved_parameters_file)
             pickle.dump(self.timeStep, saved_parameters_file)
@@ -268,9 +270,9 @@ class BrainDQN:
 
         plt.figure()
         plt.plot(q_evals, '-')
-        plt.ylabel('q_reals')
+        plt.ylabel('q_evals')
         plt.xlabel('迭代次数')
-        plt.savefig(self.logs_path + str(self.timeStep) + "_q_reals_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "_q_evals_total.png")
 
 
     # save lost/score/reward/q_target/q_real to file

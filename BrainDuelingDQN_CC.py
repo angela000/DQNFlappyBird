@@ -25,9 +25,7 @@ FINAL_EPSILON = 0                               # final value of epsilon: 0.
 INITIAL_EPSILON = 0.03                          # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                           # number of previous transitions to remember.
 SAVER_ITER = 10000                              # number of steps when save checkpoint.
-SAVE_PATH = "./saved_parameters/dueling_dqn/"   # store network parameters and other parameters for pause.
 RECORD_STEP = (1500000, 2000000, 2500000)       # the time steps to draw pics.
-DIR_NAME = '/dueling_dqn/'                      # name of the log directory (be different with other networks).
 REPLACE_TARGET_ITER = 500                       # number of steps when target net parameters update
 
 # Brain重要接口:
@@ -66,6 +64,7 @@ class BrainDuelingDQN(BrainDoublePrioritizedReplyDQN):
             h_conv3_flat_e = tf.reshape(h_relu3_e, [-1, 1600])  # [None, 1600]
             h_fc1_e = tf.nn.relu(tf.matmul(h_conv3_flat_e, W_fc1_e) + b_fc1_e)  # [None, 512]
 
+            # 提取出图像特征后，分成2路
             W_fc2_ev = tf.Variable(tf.truncated_normal([512, 1], stddev=0.01))
             b_fc2_ev = tf.Variable(tf.constant(0.01, shape=[1, 1]))
             eval_V = tf.matmul(h_fc1_e, W_fc2_ev) + b_fc2_ev

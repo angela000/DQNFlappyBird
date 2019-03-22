@@ -29,8 +29,11 @@ DIR_NAME = '/double_prioritized_reply_dqn/'     # name of the log directory (be 
 N_FEATURES = 80 * 80 * 4                        # number of features
 
 
-# BrainDQNNature改进版（记忆库的提取加入了优先级机制）
+
 class BrainDoublePrioritizedReplyDQN(BrainPrioritizedReplyDQN):
+
+    def _setDirName(self):
+        self.dir_name = '/double_prioritized_reply_dqn/'
 
     def createQNetwork(self):
         # input layer

@@ -149,11 +149,14 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
 # BrainDQNNature改进版（记忆库的提取加入了优先级机制）
 class BrainPrioritizedReplyDQN(BrainDQNNature):
     def __init__(self, actionNum, gameName):
-        BrainDQNNature.__init__(actionNum, gameName)
+        super(BrainPrioritizedReplyDQN, self).__init__(actionNum, gameName)
         # init replay memory
         self.replayMemory = Memory(capacity=REPLAY_MEMORY)
 
-    def createQNetwork(self):
+    def _setDirName(self):
+        self.dir_name = '/prioritized_reply_dqn/'
+
+    def _createQNetwork(self):
         # input layer
         with tf.variable_scope("eval_net"):
             self.eval_net_input = tf.placeholder("float", [None, 80, 80, 4])
@@ -247,6 +250,24 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
         # load network and other parameters
         self._load_saved_parameters()
 
+    def getAction(self):
+        QValue = self.readout_e.eval(feed_dict={self.eval_net_input: [self.currentState]})[0]
+        action = np.zeros(self.actionNum)
+        if self.timeStep % FRAME_PER_ACTION == 0:
+            if random.random() <= self.epsilon:
+                action_index = random.randrange(self.actionNum)
+                action[action_index] = 1
+            else:
+                action_index = np.argmax(QValue)
+                action[action_index] = 1
+        else:
+            action[0] = 1
+
+        # change episilon
+        if self.epsilon > FINAL_EPSILON and self.onlineTimeStep > OBSERVE and self.epsilon > FINAL_EPSILON:
+            self.epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
+
+        return action
 
     def _trainQNetwork(self):
         # Step1: obtain priority minibatch from replay memory

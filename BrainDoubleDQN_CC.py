@@ -25,13 +25,14 @@ FINAL_EPSILON = 0                               # final value of epsilon: 0.
 INITIAL_EPSILON = 0.03                          # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                           # number of previous transitions to remember.
 SAVER_ITER = 10000                              # number of steps when save checkpoint.
-SAVE_PATH = "./saved_parameters/double_dqn/"    # store network parameters and other parameters for pause.
 RECORD_STEP = (1500000, 2000000, 2500000)       # the time steps to draw pics.
-DIR_NAME = '/double_dqn/'                       # name of the log directory (be different with other networks).
 REPLACE_TARGET_ITER = 500                       # number of steps when target net parameters update
 
 # BrainDoubleDQN: BrainDQNNature的改进版（防止过估计产生的较差策略）
 class BrainDoubleDQN(BrainDQNNature):
+
+    def _setDirName(self):
+        self.dir_name = '/double_dqn/'
 
     def trainQNetwork(self):
         # Train the network
