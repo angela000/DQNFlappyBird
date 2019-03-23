@@ -16,7 +16,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 FRAME_PER_ACTION = 1                                # number of frames per action.
 GAMMA = 0.99                                        # decay rate of past observations.
 SAVE_PATH = "./saved_parameters/actor_critic/"      # store network parameters and other parameters for pause.
-STOP_STEP = 1500000.                                # the only way to exit training. 1,500,000 time steps.
+RECORD_STEP = (1500000, 2000000, 2500000)           # the time steps to draw pics.
 DIR_NAME = '/actor_critic/'                         # name of the log directory (be different with other networks).
 
 
@@ -144,9 +144,6 @@ class BrainDQNActorCritic:
         # load network and other parameters
         self.load_saved_parameters()
 
-        # Evaluation: store the last ten episodes' scores
-        self.counters = []
-
         # tensorboard
         tf.summary.FileWriter(self.logs_path, self.sess.graph)
 
@@ -202,8 +199,8 @@ class BrainDQNActorCritic:
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
             self.save_lsr_to_file()
-        if self.timeStep == STOP_STEP:
-            self.end_the_game()
+        if self.timeStep in RECORD_STEP:
+            self._record_by_pic()
 
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
@@ -236,26 +233,26 @@ class BrainDQNActorCritic:
 
 
     # Called when the game ends.
-    def end_the_game(self):
+    def _record_by_pic(self):
         self.save_lsr_to_file()
-        self.get_lsr_from_file()
+        scores, lost_hist_actor, lost_hist_critic, rewards = self.get_lsr_from_file()
         plt.figure()
-        plt.plot(self.lost_hist_actor)
+        plt.plot(lost_hist_actor)
         plt.ylabel('actor_lost')
         plt.savefig(self.logs_path + "lost_hist_actor_total.png")
 
         plt.figure()
-        plt.plot(self.lost_hist_critic)
+        plt.plot(lost_hist_critic)
         plt.ylabel('critic_lost')
         plt.savefig(self.logs_path + "lost_hist_critic_total.png")
 
         plt.figure()
-        plt.plot(self.scores)
+        plt.plot(scores)
         plt.ylabel('score')
         plt.savefig(self.logs_path + "scores_total.png")
 
         plt.figure()
-        plt.plot(self.rewards)
+        plt.plot(rewards)
         plt.ylabel('rewards')
         plt.savefig(self.logs_path + "rewards_total.png")
 
@@ -291,23 +288,25 @@ class BrainDQNActorCritic:
         scores_file = open(self.scores_file_path, 'r')
         scores_str = scores_file.readline().split(" ")
         scores_str = scores_str[0:-1]
-        self.scores = list(map(eval, scores_str))
+        scores = list(map(eval, scores_str))
         scores_file.close()
 
         lost_hist_actor_file = open(self.lost_hist_actor_file_path, 'r')
         lost_hist_actor_list_str = lost_hist_actor_file.readline().split(" ")
         lost_hist_actor_list_str = lost_hist_actor_list_str[0:-1]
-        self.lost_hist_actor = list(map(eval, lost_hist_actor_list_str))
+        lost_hist_actor = list(map(eval, lost_hist_actor_list_str))
         lost_hist_actor_file.close()
 
         lost_hist_critic_file = open(self.lost_hist_critic_file_path, 'r')
         lost_hist_critic_list_str = lost_hist_critic_file.readline().split(" ")
         lost_hist_critic_list_str = lost_hist_critic_list_str[0:-1]
-        self.lost_hist_critic = list(map(eval, lost_hist_critic_list_str))
+        lost_hist_critic = list(map(eval, lost_hist_critic_list_str))
         lost_hist_critic_file.close()
 
         rewards_file = open(self.rewards_file_path, 'r')
         rewards_str = rewards_file.readline().split(" ")
         rewards_str = rewards_str[0:-1]
-        self.rewards = list(map(eval, rewards_str))
+        rewards = list(map(eval, rewards_str))
         rewards_file.close()
+
+        return scores, lost_hist_actor, lost_hist_critic, rewards

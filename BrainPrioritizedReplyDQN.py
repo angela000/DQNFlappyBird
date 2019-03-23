@@ -2,49 +2,32 @@
 from __future__ import print_function
 
 import tensorflow as tf
-import cv2
+import pickle
 import sys
-
 sys.path.append("game/")
-import wrapped_flappy_bird as game
 import random
 import numpy as np
 import matplotlib as mlp
-
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-
-import shutil
+from BrainDQNNature import BrainDQNNature
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
-# import pdb
-
-GAME = 'bird'  # the name of the game being played for log files
-ACTIONS = 2  # number of valid actions
-FRAME_PER_ACTION = 1  # number of frames per action
-BATCH = 32  # size of minibatch
-N_FEATURES = 80 * 80 * 4  # number of features
-
-OBSERVE = 300.  # 100000 timesteps to observe before training
-EXPLORE = 3000000.  # frames over which to anneal epsilon
-GAMMA = 0.99  # decay rate of past observations
-FINAL_EPSILON = 0.0001  # final value of epsilon
-INITIAL_EPSILON = 0.1  # starting value of epsilon
-REPLAY_MEMORY = 50000  # number of previous transitions to remember
-REPLACE_TARGET_ITER = 500  # number of steps when target net parameters update
-
-SAVER_ITER = 10000  # number of steps when save checkpoint.
-COUNTERS_SIZE = 2  # the number of episodes to average for evaluation. 10
-AVERAGE_SIZE = 400  # the length of average_score to print a png. 500
-
-# Evaluation: store the average scores of ten last episodes.
-average_score = []
-
-LOGS_PATH = "./logs_" + GAME + "/prioritized_reply_dqn/"
-SAVE_PATH = "./saved_parameters/prioritized_reply_dqn/"
-SAVE_BACK_PATH = "./saved_back/prioritized_reply_dqn/"
-
+# Hyper Parameters:
+FRAME_PER_ACTION = 1                                        # number of frames per action.
+BATCH_SIZE = 32                                             # size of mini_batch.
+OBSERVE = 1000.                                             # 1000 steps to observe before training.
+EXPLORE = 1000000.                                          # 1000000 frames over which to anneal epsilon.
+GAMMA = 0.99                                                # decay rate of past observations.
+FINAL_EPSILON = 0                                           # final value of epsilon: 0.
+INITIAL_EPSILON = 0.03                                      # starting value of epsilon: 0.03.
+REPLAY_MEMORY = 50000                                       # number of previous transitions to remember.
+SAVER_ITER = 10000                                          # number of steps when save checkpoint.
+SAVE_PATH = "./saved_parameters/prioritized_reply_dqn/"     # store network parameters and other parameters for pause.
+RECORD_STEP = (1500000, 2000000, 2500000)                   # the time steps to draw pics.
+DIR_NAME = '/prioritized_reply_dqn/'                        # name of the log directory (be different with other networks).
+N_FEATURES = 80 * 80 * 4                                    # number of features
 
 class SumTree(object):
     """
@@ -52,25 +35,29 @@ class SumTree(object):
     https://github.com/jaara/AI-blog/blob/master/SumTree.py
     Story the data with it priority in tree and data frameworks.
     """
-    data_pointer = 0
 
     def __init__(self, capacity):
         self.capacity = capacity  # for all priority values
-        self.tree = np.zeros(2 * capacity - 1)
+        self.tree = np.zeros(2 * capacity - 1)   # store priority
         # [--------------Parent nodes-------------][-------leaves to recode priority-------]
         #             size: capacity - 1                       size: capacity
-        self.data = np.zeros(capacity, dtype=object)  # for all transitions
+        self.data = np.zeros(capacity, dtype=tuple)  # for all transitions
         # [--------------data frame-------------]
         #             size: capacity
+        self.size = 0
+        self.data_pointer = 0
 
     def add(self, p, data):
-        tree_idx = self.data_pointer + self.capacity - 1
+        tree_idx = self.data_pointer + (self.capacity - 1)
+        # the tree index:self.capacity -1 is the position of the first data.
         self.data[self.data_pointer] = data  # update data_frame
         self.update(tree_idx, p)  # update tree_frame
 
         self.data_pointer += 1
         if self.data_pointer >= self.capacity:  # replace when exceed the capacity
             self.data_pointer = 0
+        if self.size < self.capacity:
+            self.size += 1
 
     def update(self, tree_idx, p):
         change = p - self.tree[tree_idx]
@@ -79,6 +66,9 @@ class SumTree(object):
         while tree_idx != 0:  # this method is faster than the recursive loop in the reference code
             tree_idx = (tree_idx - 1) // 2
             self.tree[tree_idx] += change
+
+    def get_min_prob(self):
+        return min(self.tree[self.capacity-1 : self.capacity + self.size - 1])/self.total_p
 
     def get_leaf(self, v):
         """
@@ -126,32 +116,31 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
     abs_err_upper = 1.  # clipped abs error
 
     def __init__(self, capacity):
-        self.tree = SumTree(capacity)
+        self.sum_tree = SumTree(capacity)
 
     def store(self, transition):
-        max_p = np.max(self.tree.tree[-self.tree.capacity:])
+        max_p = np.max(self.sum_tree.tree[-self.sum_tree.capacity:])
         if max_p == 0:
             max_p = self.abs_err_upper
-        self.tree.add(max_p, transition)  # set the max p for new p
+        self.sum_tree.add(max_p, transition)  # set the max p for new p
 
     def sample(self, n):
         # tt = self.tree.tree
         # dd = self.tree.data
-        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n, self.tree.data[0].size)), np.empty(
+        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n,), dtype=tuple), np.empty(
             (n, 1))
-        pri_seg = self.tree.total_p / n  # priority segment
+        pri_seg = self.sum_tree.total_p / n  # priority segment
         self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])  # max = 1
-
-        min_prob = np.min(self.tree.tree[-self.tree.capacity:]) / self.tree.total_p  # for later calculate ISweight
         for i in range(n):
             a, b = pri_seg * i, pri_seg * (i + 1)
             v = np.random.uniform(a, b)
-            idx, p, data = self.tree.get_leaf(v)
-            prob = p / self.tree.total_p
+            idx, p, data = self.sum_tree.get_leaf(v)
+            prob = p / self.sum_tree.total_p
             # aa = prob
             # bb = min_prob
+            min_prob = self.sum_tree.get_min_prob()
             ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
-            b_idx[i], b_memory[i, :] = idx, data
+            b_idx[i], b_memory[i] = idx, data
         return b_idx, b_memory, ISWeights
 
     def batch_update(self, tree_idx, abs_errors):
@@ -159,293 +148,224 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
         clipped_errors = np.minimum(abs_errors, self.abs_err_upper)
         ps = np.power(clipped_errors, self.alpha)
         for ti, p in zip(tree_idx, ps):
-            self.tree.update(ti, p)
+            self.sum_tree.update(ti, p)
 
 
-def createNetwork():
-    # input layer
-    with tf.variable_scope("eval_net"):
-        eval_net_input = tf.placeholder("float", [None, 80, 80, 4])
-        # conv layer 1
-        W_conv1_e = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01))
-        b_conv1_e = tf.Variable(tf.constant(0.01, shape=[32]))
+# BrainDQNNature改进版（记忆库的提取加入了优先级机制）
+class BrainPrioritizedReplyDQN(BrainDQNNature):
+    def __init__(self, actionNum, gameName):
+        super(BrainPrioritizedReplyDQN, self).__init__(actionNum, gameName)
+        # init replay memory
+        self.replayMemory = Memory(capacity=REPLAY_MEMORY)
 
-        h_conv1_e = tf.nn.conv2d(eval_net_input, W_conv1_e, strides=[1, 4, 4, 1], padding="SAME")
-        h_relu1_e = tf.nn.relu(h_conv1_e + b_conv1_e)  # [None, 20, 20, 32]
-        h_pool1_e = tf.nn.max_pool(h_relu1_e, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
-        # [None, 10, 10, 32]
-        # conv layer 2
-        W_conv2_e = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
-        b_conv2_e = tf.Variable(tf.constant(0.01, shape=[64]))
+    def _setDirName(self):
+        self.dir_name = '/prioritized_reply_dqn/'
 
-        h_conv2_e = tf.nn.conv2d(h_pool1_e, W_conv2_e, strides=[1, 2, 2, 1], padding="SAME")
-        h_relu2_e = tf.nn.relu(h_conv2_e + b_conv2_e)  # [None, 5, 5, 64]
-        # conv layer 3
-        W_conv3_e = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01))
-        b_conv3_e = tf.Variable(tf.constant(0.01, shape=[64]))
+    def _createQNetwork(self):
+        # input layer
+        with tf.variable_scope("eval_net"):
+            self.eval_net_input = tf.placeholder("float", [None, 80, 80, 4])
+            # conv layer 1
+            W_conv1_e = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01))
+            b_conv1_e = tf.Variable(tf.constant(0.01, shape=[32]))
 
-        h_conv3_e = tf.nn.conv2d(h_relu2_e, W_conv3_e, strides=[1, 1, 1, 1], padding="SAME")
-        h_relu3_e = tf.nn.relu(h_conv3_e + b_conv3_e)  # [None, 5, 5, 64]
-        # full layer
-        W_fc1_e = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01))
-        b_fc1_e = tf.Variable(tf.constant(0.01, shape=[512]))
+            h_conv1_e = tf.nn.conv2d(self.eval_net_input, W_conv1_e, strides=[1, 4, 4, 1], padding="SAME")
+            h_relu1_e = tf.nn.relu(h_conv1_e + b_conv1_e)  # [None, 20, 20, 32]
+            h_pool1_e = tf.nn.max_pool(h_relu1_e, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
+            # [None, 10, 10, 32]
+            # conv layer 2
+            W_conv2_e = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01))
+            b_conv2_e = tf.Variable(tf.constant(0.01, shape=[64]))
 
-        h_conv3_flat_e = tf.reshape(h_relu3_e, [-1, 1600])  # [None, 1600]
-        h_fc1_e = tf.nn.relu(tf.matmul(h_conv3_flat_e, W_fc1_e) + b_fc1_e)  # [None, 512]
-        # reader layer 1
-        W_fc2_e = tf.Variable(tf.truncated_normal([512, ACTIONS], stddev=0.01))
-        b_fc2_e = tf.Variable(tf.constant(0.01, shape=[ACTIONS]))
+            h_conv2_e = tf.nn.conv2d(h_pool1_e, W_conv2_e, strides=[1, 2, 2, 1], padding="SAME")
+            h_relu2_e = tf.nn.relu(h_conv2_e + b_conv2_e)  # [None, 5, 5, 64]
+            # conv layer 3
+            W_conv3_e = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01))
+            b_conv3_e = tf.Variable(tf.constant(0.01, shape=[64]))
 
-        readout_e = tf.matmul(h_fc1_e, W_fc2_e) + b_fc2_e  # [None, 2]
+            h_conv3_e = tf.nn.conv2d(h_relu2_e, W_conv3_e, strides=[1, 1, 1, 1], padding="SAME")
+            h_relu3_e = tf.nn.relu(h_conv3_e + b_conv3_e)  # [None, 5, 5, 64]
+            # full layer
+            W_fc1_e = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01))
+            b_fc1_e = tf.Variable(tf.constant(0.01, shape=[512]))
 
-    with tf.variable_scope("target_net"):
-        target_net_input = tf.placeholder("float", [None, 80, 80, 4])
-        # conv layer 1
-        W_conv1_t = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01), trainable=False)
-        b_conv1_t = tf.Variable(tf.constant(0.01, shape=[32]), trainable=False)
+            h_conv3_flat_e = tf.reshape(h_relu3_e, [-1, 1600])  # [None, 1600]
+            h_fc1_e = tf.nn.relu(tf.matmul(h_conv3_flat_e, W_fc1_e) + b_fc1_e)  # [None, 512]
+            # reader layer 1
+            W_fc2_e = tf.Variable(tf.truncated_normal([512, self.actionNum], stddev=0.01))
+            b_fc2_e = tf.Variable(tf.constant(0.01, shape=[self.actionNum]))
 
-        h_conv1_t = tf.nn.conv2d(target_net_input, W_conv1_t, strides=[1, 4, 4, 1], padding="SAME")
-        h_relu1_t = tf.nn.relu(h_conv1_t + b_conv1_t)  # [None, 20, 20, 32]
-        h_pool1_t = tf.nn.max_pool(h_relu1_t, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
-        # [None, 10, 10, 32]
-        # conv layer 2
-        W_conv2_t = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01), trainable=False)
-        b_conv2_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
+            self.readout_e = tf.matmul(h_fc1_e, W_fc2_e) + b_fc2_e  # [None, 2]
 
-        h_conv2_t = tf.nn.conv2d(h_pool1_t, W_conv2_t, strides=[1, 2, 2, 1], padding="SAME")
-        h_relu2_t = tf.nn.relu(h_conv2_t + b_conv2_t)  # [None, 5, 5, 64]
-        # conv layer 3
-        W_conv3_t = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01), trainable=False)
-        b_conv3_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
+        with tf.variable_scope("target_net"):
+            self.target_net_input = tf.placeholder("float", [None, 80, 80, 4])
+            # conv layer 1
+            W_conv1_t = tf.Variable(tf.truncated_normal([8, 8, 4, 32], stddev=0.01), trainable=False)
+            b_conv1_t = tf.Variable(tf.constant(0.01, shape=[32]), trainable=False)
 
-        h_conv3_t = tf.nn.conv2d(h_relu2_t, W_conv3_t, strides=[1, 1, 1, 1], padding="SAME")
-        h_relu3_t = tf.nn.relu(h_conv3_t + b_conv3_t)  # [None, 5, 5, 64]
-        # full layer
-        W_fc1_t = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01), trainable=False)
-        b_fc1_t = tf.Variable(tf.constant(0.01, shape=[512]), trainable=False)
+            h_conv1_t = tf.nn.conv2d(self.target_net_input, W_conv1_t, strides=[1, 4, 4, 1], padding="SAME")
+            h_relu1_t = tf.nn.relu(h_conv1_t + b_conv1_t)  # [None, 20, 20, 32]
+            h_pool1_t = tf.nn.max_pool(h_relu1_t, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
+            # [None, 10, 10, 32]
+            # conv layer 2
+            W_conv2_t = tf.Variable(tf.truncated_normal([4, 4, 32, 64], stddev=0.01), trainable=False)
+            b_conv2_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
 
-        h_conv3_flat_t = tf.reshape(h_relu3_t, [-1, 1600])  # [None, 1600]
-        h_fc1_t = tf.nn.relu(tf.matmul(h_conv3_flat_t, W_fc1_t) + b_fc1_t)  # [None, 512]
-        # reader layer 1
-        W_fc2_t = tf.Variable(tf.truncated_normal([512, ACTIONS], stddev=0.01), trainable=False)
-        b_fc2_t = tf.Variable(tf.constant(0.01, shape=[ACTIONS]), trainable=False)
+            h_conv2_t = tf.nn.conv2d(h_pool1_t, W_conv2_t, strides=[1, 2, 2, 1], padding="SAME")
+            h_relu2_t = tf.nn.relu(h_conv2_t + b_conv2_t)  # [None, 5, 5, 64]
+            # conv layer 3
+            W_conv3_t = tf.Variable(tf.truncated_normal([3, 3, 64, 64], stddev=0.01), trainable=False)
+            b_conv3_t = tf.Variable(tf.constant(0.01, shape=[64]), trainable=False)
 
-        readout_t = tf.matmul(h_fc1_t, W_fc2_t) + b_fc2_t  # [None, 2]
+            h_conv3_t = tf.nn.conv2d(h_relu2_t, W_conv3_t, strides=[1, 1, 1, 1], padding="SAME")
+            h_relu3_t = tf.nn.relu(h_conv3_t + b_conv3_t)  # [None, 5, 5, 64]
+            # full layer
+            W_fc1_t = tf.Variable(tf.truncated_normal([1600, 512], stddev=0.01), trainable=False)
+            b_fc1_t = tf.Variable(tf.constant(0.01, shape=[512]), trainable=False)
 
-    return eval_net_input, target_net_input, readout_e, readout_t, h_fc1_e, h_fc1_t
+            h_conv3_flat_t = tf.reshape(h_relu3_t, [-1, 1600])  # [None, 1600]
+            h_fc1_t = tf.nn.relu(tf.matmul(h_conv3_flat_t, W_fc1_t) + b_fc1_t)  # [None, 512]
+            # reader layer 1
+            W_fc2_t = tf.Variable(tf.truncated_normal([512, self.actionNum], stddev=0.01), trainable=False)
+            b_fc2_t = tf.Variable(tf.constant(0.01, shape=[self.actionNum]), trainable=False)
+
+            self.readout_t = tf.matmul(h_fc1_t, W_fc2_t) + b_fc2_t  # [None, 2]
+
+        # parameter transfer
+        t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_net')
+        e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='eval_net')
+
+        with tf.variable_scope('soft_replacement'):
+            self.target_replace_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
+
+        # build train network
+        self.action_input = tf.placeholder("float", [None, self.actionNum])
+        self.q_target = tf.placeholder("float", [None])
+        '''>>>>>>PrioritizedReplyDQN'''
+        self.ISWeights = tf.placeholder(tf.float32, [None, 1])
+        '''PrioritizedReplyDQN<<<<<<'''
+        self.q_eval = tf.reduce_sum(tf.multiply(self.readout_e, self.action_input), axis=1)  # [None]
+        # readout_action -- reward of selected action by a.
+        self.abs_errors = tf.abs(self.q_target - self.q_eval)
+        '''>>>>>>PrioritizedReplyDQN'''
+        self.cost = tf.reduce_mean(self.ISWeights * tf.square(self.q_target - self.q_eval))
+        '''PrioritizedReplyDQN<<<<<<'''
+        self.train_step = tf.train.AdamOptimizer(1e-6).minimize(self.cost)
+
+        # load network and other parameters
+        self._load_saved_parameters()
+
+    def getAction(self):
+        QValue = self.readout_e.eval(feed_dict={self.eval_net_input: [self.currentState]})[0]
+        action = np.zeros(self.actionNum)
+        if self.timeStep % FRAME_PER_ACTION == 0:
+            if random.random() <= self.epsilon:
+                action_index = random.randrange(self.actionNum)
+                action[action_index] = 1
+            else:
+                action_index = np.argmax(QValue)
+                action[action_index] = 1
+        else:
+            action[0] = 1
+
+        # change episilon
+        if self.epsilon > FINAL_EPSILON and self.onlineTimeStep > OBSERVE and self.epsilon > FINAL_EPSILON:
+            self.epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
+
+        return action
+
+    def _trainQNetwork(self):
+        # Step1: obtain priority minibatch from replay memory
+        # sample a minibatch(32) to train on
+        tree_idx, batch_memory, ISWeights_value = self.replayMemory.sample(BATCH_SIZE)
+        # get the batch variables
+        # (d[0], d[1], d[2], d[3], d[4])
+        # (observation, a_t, r_t, terminal, observation_)
+        #state_batch = np.reshape(batch_memory[:, :N_FEATURES], (BATCH_SIZE, 80, 80, 4))
+        #action_batch = batch_memory[:, N_FEATURES:N_FEATURES+2].astype(int)
+        #reward_batch = batch_memory[:, N_FEATURES + 2]
+        #terminal_batch = batch_memory[:, N_FEATURES + 3]
+        #next_state_batch = np.reshape(batch_memory[:, -N_FEATURES:], (BATCH_SIZE, 80, 80, 4))
+        state_batch = [data[0] for data in batch_memory]
+        action_batch = [data[1] for data in batch_memory]
+        reward_batch = [data[2] for data in batch_memory]
+        next_state_batch = [data[3] for data in batch_memory]
+        # Step2: calculate q_target
+        q_target = []
+        QValue_batch = self.readout_t.eval(
+            feed_dict={
+                self.target_net_input: next_state_batch
+            }
+        )
+        for i in range(0, BATCH_SIZE):
+            terminal = batch_memory[i][4]
+            if terminal:
+                q_target.append(reward_batch[i])
+            else:
+                q_target.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
+
+        _, abs_errors, loss = self.sess.run(
+            [self.train_step, self.abs_errors, self.cost],
+            feed_dict={
+                self.q_target : q_target,
+                self.action_input : action_batch,
+                self.eval_net_input : state_batch,
+                self.ISWeights: ISWeights_value
+        })
+        self.replayMemory.batch_update(tree_idx, abs_errors)
+        self.lost_hist.append(loss)
+
+        # save network and other data every 100,000 iteration
+        if self.timeStep % 100000 == 0:
+            self.saver.save(self.sess, SAVE_PATH + self.gameName, global_step=self.timeStep)
+            saved_parameters_file = open(self.saved_parameters_file_path, 'wb')
+            pickle.dump(self.gameTimes, saved_parameters_file)
+            pickle.dump(self.timeStep, saved_parameters_file)
+            pickle.dump(self.epsilon, saved_parameters_file)
+            saved_parameters_file.close()
+            self._save_lsr_to_file()
+        if self.timeStep in RECORD_STEP:
+            self._record_by_pic()
 
 
-def trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target, h_fc1_eval, h_fc1_target, sess):
-    # parameter transfer
-    t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_net')
-    e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='eval_net')
-
-    with tf.variable_scope('soft_replacement'):
-        target_replace_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
-
-    # store the previous observations in replay memory
-    memory = Memory(capacity=REPLAY_MEMORY)
-
-    # Evaluation: store the last ten episodes' scores
-    counter = []
-
-    # define the cost function
-    a = tf.placeholder("float", [None, ACTIONS])
-    q_target = tf.placeholder("float", [None])
-    ISWeights = tf.placeholder(tf.float32, [None, 1])
-
-    q_eval = tf.reduce_sum(tf.multiply(readout_eval, a), axis=1)  # [None]
-    # readout_action -- reward of selected action by a.
-    abs_errors = tf.abs(q_target - q_eval)
-    cost = tf.reduce_mean(ISWeights * tf.square(q_target - q_eval))
-    train_step = tf.train.AdamOptimizer(1e-6).minimize(cost)
-
-    # open up a game state to communicate with emulator
-    game_state = game.GameState()
-
-    # get the first state by doing nothing and preprocess the image to 80x80x4
-    do_nothing = np.zeros(ACTIONS)
-    # do_nothing[0] == 1: do nothing
-    # do_nothing[1] == 1: flap the bird
-    do_nothing[0] = 1
-    # game_state.frame_step return: {image_data, reward, terminal}
-    x_t, r_0, terminal, score_current = game_state.frame_step(do_nothing)
-
-    x_t = cv2.cvtColor(cv2.resize(x_t, (80, 80)), cv2.COLOR_BGR2GRAY)
-    ret, x_t = cv2.threshold(x_t, 1, 255, cv2.THRESH_BINARY)
-    observation = np.stack((x_t, x_t, x_t, x_t), axis=2)  # observation 80x80x4
-
-    sess.run(tf.global_variables_initializer())
-
-    # saving and loading networks, step determines when to save a png file.
-    saver, step = store_parameters()
-
-    # tensorboard
-    writer = tf.summary.FileWriter(LOGS_PATH, sess.graph)
-
-    # start training
-    epsilon = INITIAL_EPSILON  # 0.0001
-    t = 0
-    while "ZR love EV" != "False":  # A no-stop circulation.
-        # choose an action epsilon greedily
-        a_t, action_q_value, action_index = epsilon_select_action(t, epsilon, observation)
-
-        # scale down epsilon
-        if epsilon > FINAL_EPSILON and t > OBSERVE:
-            epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE
-
-        # run the selected action and observe next state and reward
-        x_t1_colored, r_t, terminal, score_current = game_state.frame_step(a_t)
-
-        # Training:
-        if (step+t) % 1000000 == 0:
-            shutil.copytree(SAVE_PATH, SAVE_BACK_PATH + str((step + t)))
-        # Testing:
-        # store the score to counter when crash
-        # (step+t) > 200000, so that the 0 pts at the beginning could be filtered.
-        # if terminal and (step + t) > 250000:
-            # counter_add(counter, score_current, t+step)
-
-        # preprocess the image.
-        x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
-        ret, x_t1 = cv2.threshold(x_t1, 1, 255, cv2.THRESH_BINARY)
-        x_t1 = np.reshape(x_t1, (80, 80, 1))
-        observation_ = np.append(x_t1, observation[:, :, :3], axis=2)  # (80x80x4)
-
+    def setPerception(self, nextObserv, action, reward, terminal, curScore):
+        self.total_rewards_this_episode += reward
+        # 把nextObserv放到最下面，把最上面的抛弃
+        newState = np.append(self.currentState[:, :, 1:], nextObserv, axis=2)
+        #print('newState:' + str(sys.getsizeof(newState)) + '\n')
         # store the last 50000(REPLAY_MEMORY) transitions in memory
-        terminal_int = transform_terminal(terminal)
-        transition = np.hstack((observation.flatten(), a_t, r_t, terminal_int, observation_.flatten()))
-        memory.store(transition)  # have high priority for newly arrived transition
-
-        # only train if done observing
-        if t > OBSERVE:
-            # check to replace target parameters
-            if t % REPLACE_TARGET_ITER == 0:
-                sess.run(target_replace_op)
-                print('\ntarget_params_replaced\n')
-
-            # sample a minibatch(32) to train on
-            tree_idx, batch_memory, ISWeights_value = memory.sample(BATCH)
-
-            # get the batch variables
-            # (d[0], d[1], d[2], d[3], d[4])
-            # (observation, a_t, r_t, terminal, observation_)
-            s_j_batch = np.reshape(batch_memory[:, :N_FEATURES], (BATCH, 80, 80, 4))
-            a_batch = batch_memory[:, N_FEATURES:N_FEATURES+2].astype(int)
-            r_batch = batch_memory[:, N_FEATURES + 2]
-            terminal = batch_memory[:, N_FEATURES + 3]
-            s_j1_batch = np.reshape(batch_memory[:, -N_FEATURES:], (BATCH, 80, 80, 4))
-
-            y_batch = []  # max_length = 32
-            # a_batch_two = a_batch_process(a_batch)
-            readout_j1_batch = readout_target.eval(feed_dict={target_net_input: s_j1_batch})  # (32, 2)
-            for i in range(0, BATCH):  # len(minibatch) -- 32
-                if terminal[i] == 1:
-                    y_batch.append(r_batch[i])
-                else:
-                    y_batch.append(r_batch[i] + GAMMA * np.max(readout_j1_batch[i]))
-
-            # perform gradient step to minimize cost.
-            _, abs_errors_ = sess.run([train_step, abs_errors],
-                                      feed_dict={q_target: y_batch,
-                                                 a: a_batch,
-                                                 eval_net_input: s_j_batch,
-                                                 ISWeights: ISWeights_value})
-
-            memory.batch_update(tree_idx, abs_errors_)
-        '''end'''
-
-        # update the old values
-        observation = observation_
-        t += 1
-
-        # save progress every 10000 iterations
-        if t % SAVER_ITER == 0:
-            saver.save(sess, SAVE_PATH + GAME + '-dqn', global_step=(t+step))
-
+        #terminal_int = self.transform_terminal(terminal)
+        #transition = np.hstack((self.currentState.flatten(), action, reward, terminal_int, newState.flatten()))
+        #print(str(sys.getsizeof(transition)) + '\n')
+        transition = (self.currentState, action, reward, newState, terminal)
+        #print(str(sys.getsizeof(transition)) + '\n')
+        self.replayMemory.store(transition)  # have high priority for newly arrived transition
+        if self.onlineTimeStep > OBSERVE:
+            # Train the network
+            self._trainQNetwork()
         # print info
-        if t <= OBSERVE:
+        if self.onlineTimeStep <= OBSERVE:
             state = "observe"
-        elif OBSERVE < t <= OBSERVE + EXPLORE:
+        elif self.onlineTimeStep > OBSERVE and self.onlineTimeStep <= OBSERVE + EXPLORE:
             state = "explore"
         else:
             state = "train"
 
-        print("TIMESTEP", t, "/ STATE", state, "/ EPSILON", epsilon, "/ ACTION", action_index,
-              "/ REWARD", r_t, "/ Q_MAX %e" % np.max(action_q_value))
+        print("TIMESTEP", self.timeStep, "/ STATE", state, "/ ACTION", action[1], "/ EPSILON", self.epsilon,
+              "/ REWARD", reward)
 
+        if terminal:
+            self.gameTimes += 1
+            print("GAME_TIMES:" + str(self.gameTimes))
+            self.scores.append(curScore)
+            self.rewards.append(self.total_rewards_this_episode)
+            self.total_rewards_this_episode = 0
+        self.currentState = newState
+        self.timeStep += 1
+        self.onlineTimeStep += 1
 
-def store_parameters():
-    saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
-    if checkpoint and checkpoint.model_checkpoint_path:
-        saver.restore(sess, checkpoint.model_checkpoint_path)
-        print("Successfully loaded:", checkpoint.model_checkpoint_path)
-        path_ = checkpoint.model_checkpoint_path
-        step = int((path_.split('-'))[-1])
-    else:
-        # Re-train the network from zero.
-        print("Could not find old network weights")
-        step = 0
-
-    return saver, step
-
-
-def counter_add(counters, count, steps):
-    counters.append(count)
-    # calculate the mean score and clear the counter.
-    if len(counters) >= COUNTERS_SIZE:
-        average_score.append(np.mean(counters))
-        # get a scores png and clear average_score.
-        if steps >= 1000000:
-            a = steps // 1000000
-            max_size = AVERAGE_SIZE // (2 ** a)
+    def transform_terminal(self, terminal):
+        if terminal:
+            return 1
         else:
-            max_size = AVERAGE_SIZE
-        if len(average_score) >= max_size:
-            fo = open(LOGS_PATH + str(steps) + "_average_score.txt", "w")
-            fo.write(str(average_score))
-            fo.close()
-            del average_score[:]
-        del counters[:]
-
-
-def epsilon_select_action(step, epsilon, observation):
-    action_q_value = readout_eval.eval(feed_dict={eval_net_input: [observation]})[0]
-    a_t = np.zeros([ACTIONS])
-    # e.g. a_t -- array([0., 0.], dtype=float32)
-    action_index = 0
-    if step % FRAME_PER_ACTION == 0:
-        # epsilon-greedy to balance exploration and exploitation.
-        if random.random() <= epsilon:
-            # print("----------Random Action----------")
-            action_index = random.randrange(ACTIONS)
-            a_t[action_index] = 1
-        else:
-            action_index = np.argmax(action_q_value)
-            a_t[action_index] = 1
-    else:
-        a_t[0] = 1  # do nothing
-
-    return a_t, action_q_value, action_index
-
-
-def transform_terminal(terminal):
-    if terminal:
-        return 1
-    else:
-        return 0
-
-
-def a_batch_process(a_batch):
-    size = len(a_batch)
-    a = np.zeros((size, ACTIONS))
-    for i in range(size):
-        a[i, a_batch[i]] = 1
-    return a
-
-
-if __name__ == "__main__":
-    sess = tf.InteractiveSession()
-    eval_net_input, target_net_input, readout_eval, readout_target, h_fc1_eval, h_fc1_target = createNetwork()
-    trainNetwork(eval_net_input, target_net_input, readout_eval, readout_target, h_fc1_eval, h_fc1_target, sess)
+            return 0

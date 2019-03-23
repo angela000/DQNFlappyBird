@@ -5,12 +5,10 @@ import tensorflow as tf
 import pickle
 import sys
 sys.path.append("game/")
-import random
 import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from collections import deque
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -18,12 +16,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 FRAME_PER_ACTION = 1                                # number of frames per action.
 GAMMA = 0.99                                        # decay rate of past observations.
 SAVE_PATH = "./saved_parameters/policy_gradient/"   # store network parameters and other parameters for pause.
-STOP_STEP = 1500000.                                # the only way to exit training. 1,500,000 time steps.
+RECORD_STEP = (1500000, 2000000, 2500000)           # the time steps to draw pics.
 DIR_NAME = '/policy_gradient/'                      # name of the log directory (be different with other networks).
 
 
-
-class BrainDQNPolicyGradient:
+class BrainPolicyGradient:
     def __init__(self, actionNum, gameName):
         self.actionNum = actionNum
         self.gameName = gameName
@@ -90,8 +87,10 @@ class BrainDQNPolicyGradient:
         self.act_prob = tf.nn.softmax(self.QValue)
 
         # build train network
-        neg_log_prob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.QValue, labels=self.ep_acts)
-        self.loss = tf.reduce_mean(neg_log_prob * self.ep_rewards)
+        self.tf_acts = tf.placeholder(tf.int32, [None, 2], name="actions_num")
+        self.tf_rewards = tf.placeholder(tf.float32, [None, ], name="actions_value")
+        neg_log_prob = tf.nn.softmax_cross_entropy_with_logits(logits=self.QValue, labels=self.tf_acts)
+        self.loss = tf.reduce_mean(neg_log_prob * self.tf_rewards)
         self.trainStep = tf.train.AdamOptimizer(1e-6).minimize(self.loss)   # loss
 
         # load network and other parameters
@@ -127,14 +126,13 @@ class BrainDQNPolicyGradient:
 
     def trainQNetwork(self):
         discounted_ep_rewards_norm = self._discount_and_norm_rewards()
-        print(discounted_ep_rewards_norm)
         # train on episode
         _, self.lost = self.sess.run(
             [self.trainStep, self.loss],
             feed_dict={
                 self.stateInput: self.ep_states,
-                self.ep_acts: self.ep_acts,
-                self.ep_rewards: self.ep_rewards
+                self.tf_acts: self.ep_acts,
+                self.tf_rewards: self.ep_rewards
         })
         self.lost_hist.append(self.lost)
         self.ep_states, self.ep_acts, self.ep_rewards = [], [], []
@@ -148,8 +146,8 @@ class BrainDQNPolicyGradient:
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
             self.save_lsr_to_file()
-        if self.timeStep == STOP_STEP:
-            self.end_the_game()
+        if self.timeStep in RECORD_STEP:
+            self._record_by_pic()
 
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
@@ -158,7 +156,7 @@ class BrainDQNPolicyGradient:
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
         self.store_transition_in_episode(newState, action, reward)
-        print("TIMESTEP", self.timeStep, "/ ACTION", action[1], "/ EPSILON", self.epsilon, "/ REWARD", reward)
+        print("TIMESTEP", self.timeStep, "/ ACTION", action[1], "/ REWARD", reward)
 
         if terminal:
             self.trainQNetwork()
@@ -173,8 +171,10 @@ class BrainDQNPolicyGradient:
 
 
     def getAction(self):
+        action = np.zeros(self.actionNum)
         act_prob = self.act_prob.eval(feed_dict = {self.stateInput: [self.currentState]})[0]
-        action = np.random.choice(range(act_prob.shape[1]), p=act_prob.ravel())
+        action_index = np.random.choice(range(act_prob.shape[0]), p=act_prob.ravel())
+        action[action_index] = 1
         return action
 
 
@@ -202,23 +202,23 @@ class BrainDQNPolicyGradient:
 
 
     # Called when the game ends.
-    def end_the_game(self):
+    def _record_by_pic(self):
         self.save_lsr_to_file()
-        self.get_lsr_from_file()
+        scores, lost_hist, rewards = self.get_lsr_from_file()
         plt.figure()
-        plt.plot(self.lost_hist)
+        plt.plot(lost_hist)
         plt.ylabel('lost')
-        plt.savefig(self.logs_path + "lost_hist_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "lost_hist_total.png")
 
         plt.figure()
-        plt.plot(self.scores)
+        plt.plot(scores)
         plt.ylabel('score')
-        plt.savefig(self.logs_path + "scores_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "scores_total.png")
 
         plt.figure()
-        plt.plot(self.rewards)
+        plt.plot(rewards)
         plt.ylabel('rewards')
-        plt.savefig(self.logs_path + "rewards_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "rewards_total.png")
 
 
     # save lost/score/reward to file
@@ -246,17 +246,19 @@ class BrainDQNPolicyGradient:
         scores_file = open(self.scores_file_path, 'r')
         scores_str = scores_file.readline().split(" ")
         scores_str = scores_str[0:-1]
-        self.scores = list(map(eval, scores_str))
+        scores = list(map(eval, scores_str))
         scores_file.close()
 
         lost_hist_file = open(self.lost_hist_file_path, 'r')
         lost_hist_list_str = lost_hist_file.readline().split(" ")
         lost_hist_list_str = lost_hist_list_str[0:-1]
-        self.lost_hist = list(map(eval, lost_hist_list_str))
+        lost_hist = list(map(eval, lost_hist_list_str))
         lost_hist_file.close()
 
         rewards_file = open(self.rewards_file_path, 'r')
         rewards_str = rewards_file.readline().split(" ")
         rewards_str = rewards_str[0:-1]
-        self.rewards = list(map(eval, rewards_str))
+        rewards = list(map(eval, rewards_str))
         rewards_file.close()
+
+        return scores, lost_hist, rewards
