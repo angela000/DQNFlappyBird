@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib as mlp
 mlp.use('Agg')
 import matplotlib.pyplot as plt
-from BrainDoublePrioritizedReplyDQN import BrainDoublePrioritizedReplyDQN
+from BrainDQNNature import BrainDQNNature
 from collections import deque
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -28,10 +28,11 @@ SAVER_ITER = 10000                              # number of steps when save chec
 RECORD_STEP = (1500000, 2000000, 2500000)       # the time steps to draw pics.
 REPLACE_TARGET_ITER = 500                       # number of steps when target net parameters update
 
-# Brain重要接口:
-# getAction():      根据self.currentState选择action
-# setPerception():  得到新observation之后进行记忆学习
-class BrainDuelingDQN(BrainDoublePrioritizedReplyDQN):
+
+class BrainDuelingDQN(BrainDQNNature):
+
+    def _setDirName(self):
+        self.dir_name = "/dueling_dqn/"
 
     def createQNetwork(self):
         # input layer
@@ -151,7 +152,7 @@ class BrainDuelingDQN(BrainDoublePrioritizedReplyDQN):
         self.saver = tf.train.Saver()
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
-        checkpoint = tf.train.get_checkpoint_state(SAVE_PATH)
+        checkpoint = tf.train.get_checkpoint_state(self.save_path)
         if checkpoint and checkpoint.model_checkpoint_path:
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
@@ -203,13 +204,13 @@ class BrainDuelingDQN(BrainDoublePrioritizedReplyDQN):
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
-            self.saver.save(self.sess, SAVE_PATH + self.gameName, global_step=self.timeStep)
+            self.saver.save(self.sess, self.save_path + self.gameName, global_step=self.timeStep)
             saved_parameters_file = open(self.saved_parameters_file_path, 'wb')
             pickle.dump(self.gameTimes, saved_parameters_file)
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsrq_to_file()
+            self._save_lsr_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 

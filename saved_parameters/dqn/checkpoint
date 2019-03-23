@@ -1,3 +1,2 @@
-model_checkpoint_path: "bird-2100000"
-all_model_checkpoint_paths: "bird-2000000"
-all_model_checkpoint_paths: "bird-2100000"
+model_checkpoint_path: "bird-10000"
+all_model_checkpoint_paths: "bird-10000"

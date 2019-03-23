@@ -38,17 +38,18 @@ class SumTree(object):
 
     def __init__(self, capacity):
         self.capacity = capacity  # for all priority values
-        self.tree = np.zeros(2 * capacity - 1)
+        self.tree = np.zeros(2 * capacity - 1)   # store priority
         # [--------------Parent nodes-------------][-------leaves to recode priority-------]
         #             size: capacity - 1                       size: capacity
-        self.data = np.zeros(capacity, dtype=object)  # for all transitions
+        self.data = np.zeros(capacity, dtype=tuple)  # for all transitions
         # [--------------data frame-------------]
         #             size: capacity
         self.size = 0
         self.data_pointer = 0
 
     def add(self, p, data):
-        tree_idx = self.data_pointer + self.capacity - 1
+        tree_idx = self.data_pointer + (self.capacity - 1)
+        # the tree index:self.capacity -1 is the position of the first data.
         self.data[self.data_pointer] = data  # update data_frame
         self.update(tree_idx, p)  # update tree_frame
 
@@ -66,7 +67,7 @@ class SumTree(object):
             tree_idx = (tree_idx - 1) // 2
             self.tree[tree_idx] += change
 
-    def get_min(self):
+    def get_min_prob(self):
         return min(self.tree[self.capacity-1 : self.capacity + self.size - 1])/self.total_p
 
     def get_leaf(self, v):
@@ -126,7 +127,7 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
     def sample(self, n):
         # tt = self.tree.tree
         # dd = self.tree.data
-        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n, self.sum_tree.data[0].size)), np.empty(
+        b_idx, b_memory, ISWeights = np.empty((n,), dtype=np.int32), np.empty((n,), dtype=tuple), np.empty(
             (n, 1))
         pri_seg = self.sum_tree.total_p / n  # priority segment
         self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])  # max = 1
@@ -137,9 +138,9 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
             prob = p / self.sum_tree.total_p
             # aa = prob
             # bb = min_prob
-            min_prob = self.sum_tree.get_min()
+            min_prob = self.sum_tree.get_min_prob()
             ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
-            b_idx[i], b_memory[i, :] = idx, data
+            b_idx[i], b_memory[i] = idx, data
         return b_idx, b_memory, ISWeights
 
     def batch_update(self, tree_idx, abs_errors):
@@ -148,7 +149,6 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
         ps = np.power(clipped_errors, self.alpha)
         for ti, p in zip(tree_idx, ps):
             self.sum_tree.update(ti, p)
-
 
 
 # BrainDQNNature改进版（记忆库的提取加入了优先级机制）
@@ -281,28 +281,31 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
         # get the batch variables
         # (d[0], d[1], d[2], d[3], d[4])
         # (observation, a_t, r_t, terminal, observation_)
-        state_batch = np.reshape(batch_memory[:, :N_FEATURES], (BATCH_SIZE, 80, 80, 4))
-        action_batch = batch_memory[:, N_FEATURES:N_FEATURES+2].astype(int)
-        reward_batch = batch_memory[:, N_FEATURES + 2]
-        terminal_batch = batch_memory[:, N_FEATURES + 3]
-        nextState_batch = np.reshape(batch_memory[:, -N_FEATURES:], (BATCH_SIZE, 80, 80, 4))
-
+        #state_batch = np.reshape(batch_memory[:, :N_FEATURES], (BATCH_SIZE, 80, 80, 4))
+        #action_batch = batch_memory[:, N_FEATURES:N_FEATURES+2].astype(int)
+        #reward_batch = batch_memory[:, N_FEATURES + 2]
+        #terminal_batch = batch_memory[:, N_FEATURES + 3]
+        #next_state_batch = np.reshape(batch_memory[:, -N_FEATURES:], (BATCH_SIZE, 80, 80, 4))
+        state_batch = [data[0] for data in batch_memory]
+        action_batch = [data[1] for data in batch_memory]
+        reward_batch = [data[2] for data in batch_memory]
+        next_state_batch = [data[3] for data in batch_memory]
         # Step2: calculate q_target
         q_target = []
         QValue_batch = self.readout_t.eval(
             feed_dict={
-                self.target_net_input: nextState_batch
+                self.target_net_input: next_state_batch
             }
         )
         for i in range(0, BATCH_SIZE):
-            terminal = terminal_batch[i]
+            terminal = batch_memory[i][4]
             if terminal:
                 q_target.append(reward_batch[i])
             else:
                 q_target.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
-        _, abs_errors, q_evals, loss = self.sess.run(
-            [self.train_step, self.abs_errors, self.q_eval, self.cost],
+        _, abs_errors, loss = self.sess.run(
+            [self.train_step, self.abs_errors, self.cost],
             feed_dict={
                 self.q_target : q_target,
                 self.action_input : action_batch,
@@ -311,8 +314,6 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
         })
         self.replayMemory.batch_update(tree_idx, abs_errors)
         self.lost_hist.append(loss)
-        self.q_targets.append(q_target)
-        self.q_evals.append(q_evals)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -322,7 +323,7 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsrq_to_file()
+            self._save_lsr_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 
@@ -331,9 +332,13 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
         self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis=2)
+        #print('newState:' + str(sys.getsizeof(newState)) + '\n')
         # store the last 50000(REPLAY_MEMORY) transitions in memory
-        terminal_int = self.transform_terminal(terminal)
-        transition = np.hstack((self.currentState.flatten(), action, reward, terminal_int, newState.flatten()))
+        #terminal_int = self.transform_terminal(terminal)
+        #transition = np.hstack((self.currentState.flatten(), action, reward, terminal_int, newState.flatten()))
+        #print(str(sys.getsizeof(transition)) + '\n')
+        transition = (self.currentState, action, reward, newState, terminal)
+        #print(str(sys.getsizeof(transition)) + '\n')
         self.replayMemory.store(transition)  # have high priority for newly arrived transition
         if self.onlineTimeStep > OBSERVE:
             # Train the network

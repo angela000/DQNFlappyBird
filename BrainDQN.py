@@ -51,10 +51,6 @@ class BrainDQN:
         self.total_rewards_this_episode = 0
         self.rewards = []
         self.rewards_file_path = self.logs_path + 'reward.txt'
-        self.q_targets = []
-        self.q_targets_file_path = self.logs_path + 'q_target.txt'
-        self.q_evals = []
-        self.q_evals_file_path = self.logs_path + 'q_eval.txt'
         # init Q network
         self._createQNetwork()
 
@@ -66,7 +62,9 @@ class BrainDQN:
         self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
-        self.replayMemory.append((self.currentState, action, reward, newState, terminal))
+        transition = (self.currentState, action, reward, newState, terminal)
+        print(str(sys.getsizeof(transition)) + '\n')
+        self.replayMemory.append(transition)
         if len(self.replayMemory) > REPLAY_MEMORY:
             self.replayMemory.popleft()
         if self.onlineTimeStep > OBSERVE:
@@ -198,13 +196,13 @@ class BrainDQN:
         state_batch = [data[0] for data in minibatch]
         action_batch = [data[1] for data in minibatch]
         reward_batch = [data[2] for data in minibatch]
-        nextState_batch = [data[3] for data in minibatch]
+        next_state_batch = [data[3] for data in minibatch]
 
         # Step2: calculate q_target
         q_target = []
         QValue_batch = self.QValue.eval(
             feed_dict={
-                self.stateInput: nextState_batch
+                self.stateInput: next_state_batch
             }
         )
         for i in range(0, BATCH_SIZE):
@@ -214,16 +212,14 @@ class BrainDQN:
             else:
                 q_target.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
-        _, q_eval, self.lost = self.sess.run(
-            [self.trainStep, self.q_eval, self.cost],
+        _, self.lost = self.sess.run(
+            [self.trainStep, self.cost],
             feed_dict={
                 self.q_target : q_target,
                 self.actionInput : action_batch,
                 self.stateInput : state_batch
         })
         self.lost_hist.append(self.lost)
-        self.q_targets.append(q_target)
-        self.q_evals.append(q_eval)
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
             self.saver.save(self.sess, self.save_path + self.gameName, global_step=self.timeStep)
@@ -232,7 +228,7 @@ class BrainDQN:
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsrq_to_file()
+            self._save_lsr_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 
@@ -242,8 +238,8 @@ class BrainDQN:
 
     # Called at the record times.
     def _record_by_pic(self):
-        self._save_lsrq_to_file()
-        loss, scores, rewards, q_targets, q_evals = self._get_lsrq_from_file()
+        self._save_lsr_to_file()
+        loss, scores, rewards = self._get_lsr_from_file()
         plt.figure()
         plt.plot(loss, '-')
         plt.ylabel('loss')
@@ -262,21 +258,9 @@ class BrainDQN:
         plt.xlabel('episode')
         plt.savefig(self.logs_path + str(self.timeStep) + "_rewards_total.png")
 
-        plt.figure()
-        plt.plot(q_targets, '-')
-        plt.ylabel('q_targets')
-        plt.xlabel('迭代次数')
-        plt.savefig(self.logs_path + str(self.timeStep) + "_q_targets_total.png")
-
-        plt.figure()
-        plt.plot(q_evals, '-')
-        plt.ylabel('q_evals')
-        plt.xlabel('迭代次数')
-        plt.savefig(self.logs_path + str(self.timeStep) + "_q_evals_total.png")
-
 
     # save lost/score/reward/q_target/q_real to file
-    def _save_lsrq_to_file(self):
+    def _save_lsr_to_file(self):
         list_hist_file = open(self.lost_hist_file_path, 'a')
         for l in self.lost_hist:
             list_hist_file.write(str(l) + ' ')
@@ -295,20 +279,8 @@ class BrainDQN:
         rewards_file.close()
         del self.rewards[:]
 
-        q_target_file = open(self.q_targets_file_path, 'a')
-        for qt in self.q_targets:
-            q_target_file.write(str(qt) + ' ')
-        q_target_file.close()
-        del self.q_targets[:]
 
-        q_eval_file = open(self.q_evals_file_path, 'a')
-        for qe in self.q_evals:
-            q_eval_file.write(str(qe) + ' ')
-        q_eval_file.close()
-        del self.q_evals[:]
-
-
-    def _get_lsrq_from_file(self):
+    def _get_lsr_from_file(self):
         scores_file = open(self.scores_file_path, 'r')
         scores_str = scores_file.readline().split(" ")
         scores_str = scores_str[0:-1]
@@ -327,16 +299,4 @@ class BrainDQN:
         rewards = list(map(eval, rewards_str))
         rewards_file.close()
 
-        q_target_file = open(self.q_targets_file_path, 'r')
-        q_targets_str = q_target_file.readline().split(" ")
-        q_targets_str = q_targets_str[0:-1]
-        q_targets = list(map(eval, q_targets_str))
-        q_target_file.close()
-
-        q_evals_file = open(self.q_evals_file_path, 'r')
-        q_evals_str = q_evals_file.readline().split(" ")
-        q_evals_str = q_evals_str[0:-1]
-        q_evals = list(map(eval, q_evals_str))
-        q_evals_file.close()
-
-        return loss, scores, rewards, q_targets, q_evals
+        return loss, scores, rewards
