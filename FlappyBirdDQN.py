@@ -28,7 +28,7 @@ def playFlappyBird():
     # Step 1: init BrainDQN
     actionNum = 2
     gameName = 'bird'
-    brain = BrainPolicyGradient(actionNum, gameName)
+    brain = BrainDQN(actionNum, gameName)
     # Step 2: init Flappy Bird Game
     flappyBird = game.GameState()
     # Step 3: play game

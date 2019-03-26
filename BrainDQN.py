@@ -24,7 +24,7 @@ FINAL_EPSILON = 0                           # final value of epsilon: 0.
 INITIAL_EPSILON = 0.03                      # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                       # number of previous transitions to remember.
 SAVER_ITER = 10000                          # number of steps when save checkpoint.
-RECORD_STEP = (1500000, 2000000, 2500000)   # the time steps to draw pics.
+RECORD_STEP = (500000, 1000000, 1500000, 2000000, 2500000)   # the time steps to draw pics.
 
 # BrainDQN: DQN（记忆库）
 class BrainDQN:
@@ -44,26 +44,28 @@ class BrainDQN:
         self.save_path = "./saved_parameters" + self.dir_name  # store network parameters and other parameters for pause.
         self.saved_parameters_file_path = self.save_path + self.gameName + '-saved-parameters.txt'
         self.logs_path = "./logs_" + self.gameName + self.dir_name   # "logs_bird/dqn/"
+
         self.lost_hist = []
         self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
-        self.scores = []
-        self.scores_file_path = self.logs_path + 'scores.txt'
-        self.total_rewards_this_episode = 0
-        self.rewards = []
-        self.rewards_file_path = self.logs_path + 'reward.txt'
+        self.q_target = []
+        self.q_target_file_path = self.logs_path + 'q_targets.txt'
+        self.score_every_episode = []
+        self.score_every_episode_file_path = self.logs_path + 'score_every_episode.txt'
+        self.time_steps_when_episode_end = []
+        self.time_steps_when_episode_end_file_path = self.logs_path + 'time_steps_when_episode_end.txt'
+        self.reward_every_time_step = []
+        self.reward_every_time_step_file_path = self.logs_path + 'reward_every_time_step.txt'
         # init Q network
         self._createQNetwork()
 
     def _setDirName(self):
         self.dir_name = "/dqn/"
 
-    # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
+
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
-        self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
         transition = (self.currentState, action, reward, newState, terminal)
-        print(str(sys.getsizeof(transition)) + '\n')
         self.replayMemory.append(transition)
         if len(self.replayMemory) > REPLAY_MEMORY:
             self.replayMemory.popleft()
@@ -79,15 +81,15 @@ class BrainDQN:
         else:
             state = "train"
 
-        print("TIMESTEP", self.timeStep, "/ STATE", state, "/ ACTION", action[1],"/ EPSILON", self.epsilon,
-                  "/ REWARD", reward)
+        print("TIMESTEP", self.timeStep, "/ STATE", state, "/ ACTION", action[1], "/ EPSILON", self.epsilon,
+                  "/ REWARD", reward, "/ SCORE", curScore)
 
+        self.reward_every_time_step.append(reward)
         if terminal:
             self.gameTimes += 1
             print("GAME_TIMES:" + str(self.gameTimes))
-            self.scores.append(curScore)
-            self.rewards.append(self.total_rewards_this_episode)
-            self.total_rewards_this_episode = 0
+            self.score_every_episode.append(curScore)
+            self.time_steps_when_episode_end.append(self.timeStep)
         self.currentState = newState
         self.timeStep += 1
         self.onlineTimeStep += 1
@@ -180,11 +182,10 @@ class BrainDQN:
             print("Successfully loaded:", checkpoint.model_checkpoint_path)
             # restore other params.
             if os.path.exists(self.saved_parameters_file_path) and os.path.getsize(self.saved_parameters_file_path) > 0:
-                saved_parameters_file = open(self.saved_parameters_file_path, 'rb')
-                self.gameTimes = pickle.load(saved_parameters_file)
-                self.timeStep = pickle.load(saved_parameters_file)
-                self.epsilon = pickle.load(saved_parameters_file)
-                saved_parameters_file.close()
+                with open(self.saved_parameters_file_path, 'rb') as saved_parameters_file:
+                    self.gameTimes = pickle.load(saved_parameters_file)
+                    self.timeStep = pickle.load(saved_parameters_file)
+                    self.epsilon = pickle.load(saved_parameters_file)
         else:
             # Re-train the network from zero.
             print("Could not find old network weights")
@@ -220,15 +221,15 @@ class BrainDQN:
                 self.stateInput : state_batch
         })
         self.lost_hist.append(self.lost)
+        self.q_target.append(q_target)
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
             self.saver.save(self.sess, self.save_path + self.gameName, global_step=self.timeStep)
-            saved_parameters_file = open(self.saved_parameters_file_path, 'wb')
-            pickle.dump(self.gameTimes, saved_parameters_file)
-            pickle.dump(self.timeStep, saved_parameters_file)
-            pickle.dump(self.epsilon, saved_parameters_file)
-            saved_parameters_file.close()
-            self._save_lsr_to_file()
+            with open(self.saved_parameters_file_path, 'wb') as saved_parameters_file:
+                pickle.dump(self.gameTimes, saved_parameters_file)
+                pickle.dump(self.timeStep, saved_parameters_file)
+                pickle.dump(self.epsilon, saved_parameters_file)
+            self._save_loss_score_timestep_reward_qtarget_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 
@@ -238,65 +239,84 @@ class BrainDQN:
 
     # Called at the record times.
     def _record_by_pic(self):
-        self._save_lsr_to_file()
-        loss, scores, rewards = self._get_lsr_from_file()
+        self._save_loss_score_timestep_reward_qtarget_to_file()
+        loss, scores, time_step_when_episode_end, reward_every_time_step, q_target = self._get_loss_score_timestep_reward_qtarget_from_file()
         plt.figure()
         plt.plot(loss, '-')
         plt.ylabel('loss')
-        plt.xlabel('迭代次数')
+        plt.xlabel('time_step')
         plt.savefig(self.logs_path + str(self.timeStep) + "_lost_hist_total.png")
 
         plt.figure()
-        plt.plot(scores)
-        plt.ylabel('score', '-')
+        plt.plot(scores, '-')
+        plt.ylabel('score')
         plt.xlabel('episode')
-        plt.savefig(self.logs_path + str(self.timeStep) + "_scores_total.png")
+        plt.savefig(self.logs_path + str(self.timeStep) + "_scores_episode_total.png")
 
         plt.figure()
-        plt.plot(rewards, '-')
-        plt.ylabel('rewards')
-        plt.xlabel('episode')
-        plt.savefig(self.logs_path + str(self.timeStep) + "_rewards_total.png")
+        plt.plot(q_target, '-')
+        plt.ylabel('q target')
+        plt.xlabel('time_step')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_q_target_total.png")
 
+        plt.figure()
+        plt.plot(time_step_when_episode_end, scores, '-')
+        plt.ylabel('score')
+        plt.xlabel('time_step')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_scores_time_step_total.png")
 
-    # save lost/score/reward/q_target/q_real to file
-    def _save_lsr_to_file(self):
-        list_hist_file = open(self.lost_hist_file_path, 'a')
-        for l in self.lost_hist:
-            list_hist_file.write(str(l) + ' ')
-        list_hist_file.close()
+    # save loss/score/time_step/reward/q_target to file
+    def _save_loss_score_timestep_reward_qtarget_to_file(self):
+        with open(self.lost_hist_file_path, 'a') as lost_hist_file:
+            for l in self.lost_hist:
+                lost_hist_file.write(str(l) + ' ')
         del self.lost_hist[:]
 
-        scores_file = open(self.scores_file_path, 'a')
-        for s in self.scores:
-            scores_file.write(str(s) + ' ')
-        scores_file.close()
-        del self.scores[:]
+        with open(self.score_every_episode_file_path, 'a') as score_every_episode_file:
+            for s in self.score_every_episode:
+                score_every_episode_file.write(str(s) + ' ')
+        del self.score_every_episode[:]
 
-        rewards_file = open(self.rewards_file_path, 'a')
-        for r in self.rewards:
-            rewards_file.write(str(r) + ' ')
-        rewards_file.close()
-        del self.rewards[:]
+        with open(self.time_steps_when_episode_end_file_path, 'a') as time_step_when_episode_end_file:
+            for t in self.time_steps_when_episode_end:
+                time_step_when_episode_end_file.write(str(t) + ' ')
+        del self.time_steps_when_episode_end[:]
+
+        with open(self.reward_every_time_step_file_path, 'a') as reward_every_time_step_file:
+            for r in self.reward_every_time_step:
+                reward_every_time_step_file.write(str(r) + ' ')
+        del self.reward_every_time_step[:]
+
+        with open(self.q_target_file_path, 'a') as q_target_file:
+            for q in self.q_target:
+                q_target_file.write(str(q) + ' ')
+        del self.q_target[:]
 
 
-    def _get_lsr_from_file(self):
-        scores_file = open(self.scores_file_path, 'r')
-        scores_str = scores_file.readline().split(" ")
-        scores_str = scores_str[0:-1]
-        scores = list(map(eval, scores_str))
-        scores_file.close()
+    def _get_loss_score_timestep_reward_qtarget_from_file(self):
+        with open(self.lost_hist_file_path, 'r') as lost_hist_file:
+            lost_hist_list_str = lost_hist_file.readline().split(" ")
+            lost_hist_list_str = lost_hist_list_str[0:-1]
+            loss = list(map(eval, lost_hist_list_str))
 
-        lost_hist_file = open(self.lost_hist_file_path, 'r')
-        lost_hist_list_str = lost_hist_file.readline().split(" ")
-        lost_hist_list_str = lost_hist_list_str[0:-1]
-        loss = list(map(eval, lost_hist_list_str))
-        lost_hist_file.close()
+        with open(self.score_every_episode_file_path, 'a') as score_every_episode_file:
+            scores_str = score_every_episode_file.readline().split(" ")
+            scores_str = scores_str[0:-1]
+            scores = list(map(eval, scores_str))
 
-        rewards_file = open(self.rewards_file_path, 'r')
-        rewards_str = rewards_file.readline().split(" ")
-        rewards_str = rewards_str[0:-1]
-        rewards = list(map(eval, rewards_str))
-        rewards_file.close()
+        with open(self.time_steps_when_episode_end_file_path, 'a') as time_step_when_episode_end_file:
+            time_step_when_episode_end_str = time_step_when_episode_end_file.readline().split(" ")
+            time_step_when_episode_end_str = time_step_when_episode_end_str[0:-1]
+            time_step_when_episode_end = list(map(eval, time_step_when_episode_end_str))
 
-        return loss, scores, rewards
+        with open(self.reward_every_time_step_file_path, 'a') as reward_every_time_step_file:
+            reward_every_time_step_str = reward_every_time_step_file.readline().split(" ")
+            reward_every_time_step_str = reward_every_time_step_str[0:-1]
+            reward_every_time_step = list(map(eval, reward_every_time_step_str))
+
+        with open(self.q_target_file_path, 'a') as q_target_file:
+            q_target_str = q_target_file.readline().split(" ")
+            q_target_str = q_target_str[0:-1]
+            q_target = list(map(eval, q_target_str))
+
+        return loss, scores, time_step_when_episode_end, reward_every_time_step, q_target

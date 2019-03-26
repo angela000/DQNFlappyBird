@@ -67,6 +67,7 @@ class BrainDQNNature(BrainDQN):
 
             self.readout_e = tf.matmul(h_fc1_e, W_fc2_e) + b_fc2_e  # [None, 2]
 
+        '''DQNNature'''
         with tf.variable_scope("target_net"):
             self.target_net_input = tf.placeholder("float", [None, 80, 80, 4])
             # conv layer 1
@@ -124,7 +125,9 @@ class BrainDQNNature(BrainDQN):
         self.dir_name = '/dqn_nature/'
 
     def getAction(self):
+        '''DoubleDQN'''
         QValue = self.readout_e.eval(feed_dict={self.eval_net_input: [self.currentState]})[0]
+        '''DoubleDQN'''
         action = np.zeros(self.actionNum)
         if self.timeStep % FRAME_PER_ACTION == 0:
             if random.random() <= self.epsilon:
@@ -156,11 +159,13 @@ class BrainDQNNature(BrainDQN):
 
         # Step2: calculate y
         q_targets = []
+        '''DoubleDQN'''
         target_q_value = self.readout_t.eval(
             feed_dict={
                 self.target_net_input: nextState_batch
             }
         )
+        '''DoubleDQN'''
         for i in range(0, BATCH_SIZE):
             terminal = minibatch[i][4]
             if terminal:
@@ -176,8 +181,6 @@ class BrainDQNNature(BrainDQN):
                 self.eval_net_input : state_batch
         })
         self.lost_hist.append(self.lost)
-        self.q_targets.append(q_targets)
-        self.q_evals.append(q_evals)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -187,6 +190,6 @@ class BrainDQNNature(BrainDQN):
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsrq_to_file()
+            self._save_lsr_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()

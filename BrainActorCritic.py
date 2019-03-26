@@ -208,7 +208,7 @@ class BrainDQNActorCritic:
         self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
-        print("TIMESTEP", self.timeStep, "/ ACTION", action[1], "/ EPSILON", self.epsilon, "/ REWARD", reward)
+        print("TIMESTEP", self.timeStep, "/ ACTION", action[1], "/ REWARD", reward)
         self.trainQNetwork(reward, nextObserv)
         if terminal:
             self.gameTimes += 1
@@ -221,10 +221,11 @@ class BrainDQNActorCritic:
         self.onlineTimeStep += 1
 
 
-    # 这个getAction可以多观察观察。细节上还没理解。很容易出错。
     def getAction(self):
+        action = np.zeros(self.actionNum)
         act_prob = self.action_prob_a.eval(feed_dict = {self.state_input_a: self.currentState})
-        action = np.random.choice(range(act_prob.shape[1]), p=act_prob.ravel())
+        action_index = np.random.choice(range(act_prob.shape[1]), p=act_prob.ravel())
+        action[action_index] = 1
         return action
 
 

@@ -68,8 +68,6 @@ class BrainDoubleDQN(BrainDQNNature):
                 self.eval_net_input : state_batch
         })
         self.lost_hist.append(self.lost)
-        self.q_targets.append(q_target)
-        self.q_evals.append(q_evals)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -79,6 +77,6 @@ class BrainDoubleDQN(BrainDQNNature):
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsrq_to_file()
+            self._save_lsr_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
