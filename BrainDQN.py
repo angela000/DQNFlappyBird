@@ -7,8 +7,9 @@ import sys
 sys.path.append("game/")
 import random
 import numpy as np
-import matplotlib as mlp
-mlp.use('Agg')
+import matplotlib as mpl
+mpl.use('Agg')
+mpl.rcParams['agg.path.chunksize'] = 10000
 import matplotlib.pyplot as plt
 from collections import deque
 import os
@@ -47,7 +48,7 @@ class BrainDQN:
 
         self.lost_hist = []
         self.lost_hist_file_path = self.logs_path + 'lost_hist.txt'
-        self.q_target = []
+        self.q_target_list = []
         self.q_target_file_path = self.logs_path + 'q_targets.txt'
         self.score_every_episode = []
         self.score_every_episode_file_path = self.logs_path + 'score_every_episode.txt'
@@ -221,7 +222,7 @@ class BrainDQN:
                 self.stateInput : state_batch
         })
         self.lost_hist.append(self.lost)
-        self.q_target.append(q_target)
+        self.q_target_list.append(q_target)
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
             self.saver.save(self.sess, self.save_path + self.gameName, global_step=self.timeStep)
@@ -255,8 +256,8 @@ class BrainDQN:
 
         plt.figure()
         plt.plot(q_target, '-')
-        plt.ylabel('q target')
-        plt.xlabel('time_step')
+        plt.ylabel('q_target')
+        plt.xlabel('BATCH * time_step')
         plt.savefig(self.logs_path + str(self.timeStep) + "_q_target_total.png")
 
         plt.figure()
@@ -288,9 +289,9 @@ class BrainDQN:
         del self.reward_every_time_step[:]
 
         with open(self.q_target_file_path, 'a') as q_target_file:
-            for q in self.q_target:
+            for q in self.q_target_list:
                 q_target_file.write(str(q) + ' ')
-        del self.q_target[:]
+        del self.q_target_list[:]
 
 
     def _get_loss_score_timestep_reward_qtarget_from_file(self):
@@ -299,24 +300,25 @@ class BrainDQN:
             lost_hist_list_str = lost_hist_list_str[0:-1]
             loss = list(map(eval, lost_hist_list_str))
 
-        with open(self.score_every_episode_file_path, 'a') as score_every_episode_file:
+        with open(self.score_every_episode_file_path, 'r') as score_every_episode_file:
             scores_str = score_every_episode_file.readline().split(" ")
             scores_str = scores_str[0:-1]
             scores = list(map(eval, scores_str))
 
-        with open(self.time_steps_when_episode_end_file_path, 'a') as time_step_when_episode_end_file:
+        with open(self.time_steps_when_episode_end_file_path, 'r') as time_step_when_episode_end_file:
             time_step_when_episode_end_str = time_step_when_episode_end_file.readline().split(" ")
             time_step_when_episode_end_str = time_step_when_episode_end_str[0:-1]
             time_step_when_episode_end = list(map(eval, time_step_when_episode_end_str))
 
-        with open(self.reward_every_time_step_file_path, 'a') as reward_every_time_step_file:
+        with open(self.reward_every_time_step_file_path, 'r') as reward_every_time_step_file:
             reward_every_time_step_str = reward_every_time_step_file.readline().split(" ")
             reward_every_time_step_str = reward_every_time_step_str[0:-1]
             reward_every_time_step = list(map(eval, reward_every_time_step_str))
 
-        with open(self.q_target_file_path, 'a') as q_target_file:
-            q_target_str = q_target_file.readline().split(" ")
-            q_target_str = q_target_str[0:-1]
+        with open(self.q_target_file_path, 'r') as q_target_file:
+            q_target_str = q_target_file.readline()
+            q_target_str = q_target_str.replace('[', '').replace(']', '').replace(',', '')
+            q_target_str = q_target_str.split(' ')[0:-1]
             q_target = list(map(eval, q_target_str))
 
         return loss, scores, time_step_when_episode_end, reward_every_time_step, q_target
