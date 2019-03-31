@@ -51,7 +51,7 @@ def playFlappyBird():
     elif args.model == 'actorcritic':
         model = BrainDQNActorCritic
     elif args.model == 'policygradient':
-	model = BrainPolicyGradient
+        model = BrainPolicyGradient
     else:
         model = None
         print("invalid model!")
