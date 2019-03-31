@@ -227,7 +227,7 @@ class BrainDQNActorCritic:
     def getAction(self):
         action = np.zeros(self.actionNum)
         act_prob = self.action_prob_a.eval(feed_dict = {self.state_input_a: [self.currentState]})[0]
-        action_index = np.random.choice(range(act_prob.shape[1]), p=act_prob.ravel())
+        action_index = np.random.choice(range(act_prob.shape[0]), p=act_prob.ravel())
         action[action_index] = 1
         return action
 
