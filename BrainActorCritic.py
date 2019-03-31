@@ -175,7 +175,23 @@ class BrainDQNActorCritic:
 
 
     def trainQNetwork(self, action, reward, next_state):
-        td_error, state_value_c, self.lost_c = self.sess.run(
+
+        # Step2: calculate q_target
+        q_target = []
+        QValue_batch = self.QValue.eval(
+            feed_dict={
+                self.stateInput: next_state_batch
+            }
+        )
+        for i in range(0, BATCH_SIZE):
+            terminal = minibatch[i][4]
+            if terminal:
+                q_target.append(reward_batch[i])
+            else:
+                q_target.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
+
+
+        td_error, state_value_c, _, lost_c = self.sess.run(
             [self.td_error_c, self.state_value_c, self.train_step_c, self.loss_c],
             feed_dict={
                 self.reward_c: reward,
@@ -184,7 +200,7 @@ class BrainDQNActorCritic:
             }
         )
         # train on episode
-        _, self.lost_a = self.sess.run(
+        _, lost_a = self.sess.run(
             [self.train_step_a, self.loss_a],
             feed_dict={
                 self.td_error_a: td_error,
@@ -192,9 +208,9 @@ class BrainDQNActorCritic:
                 self.state_input_a: self.currentState
             }
         )
-        self.lost_hist_actor.append(self.lost_a)
-        self.lost_hist_critic.append(self.lost_c)
-        self.q_target_critic_list.append(td_error + self.state_value_c)
+        self.lost_hist_actor.append(lost_a)
+        self.lost_hist_critic.append(lost_c)
+        self.q_target_critic_list.append(td_error + state_value_c)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
