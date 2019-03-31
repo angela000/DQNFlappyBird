@@ -17,6 +17,7 @@ from BrainDoubleDQN import BrainDoubleDQN
 from BrainPolicyGradient import BrainPolicyGradient
 from BrainActorCritic import BrainDQNActorCritic
 from BrainDuelingDQN_CC import BrainDuelingDQN
+from BrainPolicyGradient import BrainPolicyGradient
 import numpy as np
 import argparse
 
@@ -49,6 +50,8 @@ def playFlappyBird():
         model = BrainPrioritizedReplyDQN
     elif args.model == 'actorcritic':
         model = BrainDQNActorCritic
+    elif args.model == 'policygradient':
+	model = BrainPolicyGradient
     else:
         model = None
         print("invalid model!")
