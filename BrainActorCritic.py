@@ -214,7 +214,7 @@ class BrainDQNActorCritic:
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
         print("TIMESTEP", self.timeStep, "/ ACTION", action[1], "/ REWARD", reward)
-        self.trainQNetwork(reward, nextObserv)
+        self.trainQNetwork(reward, nextObserv, newState)
         if terminal:
             self.gameTimes += 1
             print("GAME_TIMES:" + str(self.gameTimes))
