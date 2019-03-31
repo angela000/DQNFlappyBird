@@ -25,7 +25,7 @@ INITIAL_EPSILON = 0.03                                      # starting value of 
 REPLAY_MEMORY = 50000                                       # number of previous transitions to remember.
 SAVER_ITER = 10000                                          # number of steps when save checkpoint.
 SAVE_PATH = "./saved_parameters/prioritized_reply_dqn/"     # store network parameters and other parameters for pause.
-RECORD_STEP = (1500000, 2000000, 2500000)                   # the time steps to draw pics.
+RECORD_STEP = (500000, 1000000, 1500000, 2000000, 2500000)                   # the time steps to draw pics.
 DIR_NAME = '/prioritized_reply_dqn/'                        # name of the log directory (be different with other networks).
 N_FEATURES = 80 * 80 * 4                                    # number of features
 
@@ -314,6 +314,7 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
         })
         self.replayMemory.batch_update(tree_idx, abs_errors)
         self.lost_hist.append(loss)
+        self.q_target_list.append(q_target)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -323,13 +324,12 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsr_to_file()
+            self._save_loss_score_timestep_reward_qtarget_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 
 
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
-        self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis=2)
         #print('newState:' + str(sys.getsizeof(newState)) + '\n')
@@ -354,12 +354,13 @@ class BrainPrioritizedReplyDQN(BrainDQNNature):
         print("TIMESTEP", self.timeStep, "/ STATE", state, "/ ACTION", action[1], "/ EPSILON", self.epsilon,
               "/ REWARD", reward)
 
+        self.reward_every_time_step.append(reward)
         if terminal:
             self.gameTimes += 1
             print("GAME_TIMES:" + str(self.gameTimes))
-            self.scores.append(curScore)
-            self.rewards.append(self.total_rewards_this_episode)
-            self.total_rewards_this_episode = 0
+            self.score_every_episode.append(curScore)
+            self.time_steps_when_episode_end.append(self.timeStep)
+
         self.currentState = newState
         self.timeStep += 1
         self.onlineTimeStep += 1

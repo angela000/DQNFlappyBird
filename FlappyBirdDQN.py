@@ -11,13 +11,21 @@ import game.wrapped_flappy_bird as game
 
 from BrainDQNNature import BrainDQNNature
 # from BrainDQNNature_CC import BrainDQN
-# from BrainPrioritizedReplyDQN import BrainPrioritizedReplyDQN
+from BrainPrioritizedReplyDQN import BrainPrioritizedReplyDQN
 from BrainDQN import BrainDQN
 from BrainDoubleDQN import BrainDoubleDQN
 from BrainPolicyGradient import BrainPolicyGradient
-# import BrainDoubleDQN
-import BrainDuelingDQN
+from BrainActorCritic import BrainDQNActorCritic
+from BrainDuelingDQN_CC import BrainDuelingDQN
 import numpy as np
+import argparse
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--model")
+args = parser.parse_args()
+
+
 
 def preprocess(observ):
     observ = cv2.cvtColor(cv2.resize(observ, (80, 80)), cv2.COLOR_BGR2GRAY)
@@ -28,7 +36,25 @@ def playFlappyBird():
     # Step 1: init BrainDQN
     actionNum = 2
     gameName = 'bird'
-    brain = BrainDQNNature(actionNum, gameName)
+
+    if args.model == 'dqn':
+        model = BrainDQN
+    elif args.model == 'ddqn':
+        model = BrainDoubleDQN
+    elif args.model == 'dqnnature':
+        model = BrainDQNNature
+    elif args.model == 'duelingdqn':
+        model = BrainDuelingDQN
+    elif args.model == 'prioritydqn':
+        model = BrainPrioritizedReplyDQN
+    elif args.model == 'actorcritic':
+        model = BrainDQNActorCritic
+    else:
+        model = None
+        print("invalid model!")
+        exit()
+
+    brain = model(actionNum, gameName)
     # Step 2: init Flappy Bird Game
     flappyBird = game.GameState()
     # Step 3: play game

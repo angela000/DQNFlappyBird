@@ -25,7 +25,7 @@ FINAL_EPSILON = 0                               # final value of epsilon: 0.
 INITIAL_EPSILON = 0.03                          # starting value of epsilon: 0.03.
 REPLAY_MEMORY = 50000                           # number of previous transitions to remember.
 SAVER_ITER = 10000                              # number of steps when save checkpoint.
-RECORD_STEP = (1500000, 2000000, 2500000)       # the time steps to draw pics.
+RECORD_STEP = (500000, 1000000, 1500000, 2000000, 2500000)       # the time steps to draw pics.
 REPLACE_TARGET_ITER = 500                       # number of steps when target net parameters update
 
 # BrainDoubleDQN: BrainDQNNature的改进版（防止过估计产生的较差策略）
@@ -60,15 +60,15 @@ class BrainDoubleDQN(BrainDQNNature):
             else:
                 q_target.append(reward_batch[i] + GAMMA * selected_q_next[i])
 
-        _, q_evals, self.lost = self.sess.run(
-            [self.train_step, self.q_eval, self.cost],
+        _, self.lost = self.sess.run(
+            [self.train_step, self.cost],
             feed_dict={
                 self.q_target : q_target,
                 self.action_input : action_batch,
                 self.eval_net_input : state_batch
         })
         self.lost_hist.append(self.lost)
-
+        self.q_target_list.append(q_target)
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
             self.saver.save(self.sess, self.save_path + self.gameName, global_step=self.timeStep)
@@ -77,6 +77,6 @@ class BrainDoubleDQN(BrainDQNNature):
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self._save_lsr_to_file()
+            self._save_loss_score_timestep_reward_qtarget_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()

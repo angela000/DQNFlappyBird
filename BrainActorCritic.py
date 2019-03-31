@@ -16,7 +16,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 FRAME_PER_ACTION = 1                                # number of frames per action.
 GAMMA = 0.99                                        # decay rate of past observations.
 SAVE_PATH = "./saved_parameters/actor_critic/"      # store network parameters and other parameters for pause.
-RECORD_STEP = (1500000, 2000000, 2500000)           # the time steps to draw pics.
+RECORD_STEP = (500000, 1000000, 1500000, 2000000, 2500000)           # the time steps to draw pics.
 DIR_NAME = '/actor_critic/'                         # name of the log directory (be different with other networks).
 
 
@@ -39,9 +39,14 @@ class BrainDQNActorCritic:
         self.lost_hist_critic_file_path = self.logs_path + 'lost_hist_critic.txt'
         self.scores = []
         self.scores_file_path = self.logs_path + 'scores.txt'
-        self.total_rewards_this_episode = 0
-        self.rewards = []
-        self.rewards_file_path = self.logs_path + 'reward.txt'
+        self.q_target_critic_list = []
+        self.q_target_critic_file_path = self.logs_path + 'q_targets_critic.txt'
+        self.score_every_episode = []
+        self.score_every_episode_file_path = self.logs_path + 'score_every_episode.txt'
+        self.time_steps_when_episode_end = []
+        self.time_steps_when_episode_end_file_path = self.logs_path + 'time_steps_when_episode_end.txt'
+        self.reward_every_time_step = []
+        self.reward_every_time_step_file_path = self.logs_path + 'reward_every_time_step.txt'
         # init Q network
         self.createQNetwork()
 
@@ -170,12 +175,12 @@ class BrainDQNActorCritic:
 
 
     def trainQNetwork(self, action, reward, next_state):
-        td_error, _, self.lost_c = self.sess.run(
-            [self.td_error_c, self.train_step_c, self.loss_c],
+        td_error, state_value_c, self.lost_c = self.sess.run(
+            [self.td_error_c, self.state_value_c, self.train_step_c, self.loss_c],
             feed_dict={
                 self.reward_c: reward,
                 self.next_state_value_c: next_state,
-                self.state_value_c: self.currentState
+                self.state_input_c: self.currentState
             }
         )
         # train on episode
@@ -189,6 +194,7 @@ class BrainDQNActorCritic:
         )
         self.lost_hist_actor.append(self.lost_a)
         self.lost_hist_critic.append(self.lost_c)
+        self.q_target_critic_list.append(td_error + self.state_value_c)
 
         # save network and other data every 100,000 iteration
         if self.timeStep % 100000 == 0:
@@ -198,14 +204,13 @@ class BrainDQNActorCritic:
             pickle.dump(self.timeStep, saved_parameters_file)
             pickle.dump(self.epsilon, saved_parameters_file)
             saved_parameters_file.close()
-            self.save_lsr_to_file()
+            self._save_loss_score_timestep_reward_qtarget_to_file()
         if self.timeStep in RECORD_STEP:
             self._record_by_pic()
 
 
     # observ != state. game环境可以给observ，但是state需要自己构造（最近的4个observ）
     def setPerception(self, nextObserv, action, reward, terminal, curScore):
-        self.total_rewards_this_episode += reward
         # 把nextObserv放到最下面，把最上面的抛弃
         newState = np.append(self.currentState[:, :, 1:], nextObserv, axis = 2)
         print("TIMESTEP", self.timeStep, "/ ACTION", action[1], "/ REWARD", reward)
@@ -214,8 +219,6 @@ class BrainDQNActorCritic:
             self.gameTimes += 1
             print("GAME_TIMES:" + str(self.gameTimes))
             self.scores.append(curScore)
-            self.rewards.append(self.total_rewards_this_episode)
-            self.total_rewards_this_episode = 0
         self.currentState = newState
         self.timeStep += 1
         self.onlineTimeStep += 1
@@ -233,81 +236,104 @@ class BrainDQNActorCritic:
         self.currentState = np.stack((observ, observ, observ, observ), axis = 2)
 
 
-    # Called when the game ends.
+    # Called at the record times.
     def _record_by_pic(self):
-        self.save_lsr_to_file()
-        scores, lost_hist_actor, lost_hist_critic, rewards = self.get_lsr_from_file()
+        self._save_loss_score_timestep_reward_qtarget_to_file()
+        loss_a, loss_c, scores, time_step_when_episode_end, reward_every_time_step, q_target = self._get_loss_score_timestep_reward_qtarget_from_file()
         plt.figure()
-        plt.plot(lost_hist_actor)
-        plt.ylabel('actor_lost')
-        plt.savefig(self.logs_path + "lost_hist_actor_total.png")
+        plt.plot(loss_a, '-')
+        plt.ylabel('loss_actor')
+        plt.xlabel('time_step')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_lost_hist_actor_total.png")
 
         plt.figure()
-        plt.plot(lost_hist_critic)
-        plt.ylabel('critic_lost')
-        plt.savefig(self.logs_path + "lost_hist_critic_total.png")
+        plt.plot(loss_c, '-')
+        plt.ylabel('loss_critic')
+        plt.xlabel('time_step')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_lost_hist_critic_total.png")
 
         plt.figure()
-        plt.plot(scores)
+        plt.plot(scores, '-')
         plt.ylabel('score')
-        plt.savefig(self.logs_path + "scores_total.png")
+        plt.xlabel('episode')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_scores_episode_total.png")
 
         plt.figure()
-        plt.plot(rewards)
-        plt.ylabel('rewards')
-        plt.savefig(self.logs_path + "rewards_total.png")
+        plt.plot(q_target, '-')
+        plt.ylabel('q_target')
+        plt.xlabel('BATCH * time_step')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_q_target_total.png")
+
+        plt.figure()
+        plt.plot(time_step_when_episode_end, scores, '-')
+        plt.ylabel('score')
+        plt.xlabel('time_step')
+        plt.savefig(self.logs_path + str(self.timeStep) + "_scores_time_step_total.png")
 
 
-    # save lost/score/reward to file
-    def save_lsr_to_file(self):
-        list_hist_actor_file = open(self.lost_hist_actor_file_path, 'a')
-        for la in self.lost_hist_actor:
-            list_hist_actor_file.write(str(la) + ' ')
-        list_hist_actor_file.close()
+    # save loss/score/time_step/reward/q_target to file
+    def _save_loss_score_timestep_reward_qtarget_to_file(self):
+        with open(self.lost_hist_actor_file_path, 'a') as lost_hist_actor_file:
+            for l in self.lost_hist_actor:
+                lost_hist_actor_file.write(str(l) + ' ')
         del self.lost_hist_actor[:]
 
-        list_hist_critic_file = open(self.lost_hist_critic_file_path, 'a')
-        for lc in self.lost_hist_critic:
-            list_hist_critic_file.write(str(lc) + ' ')
-        list_hist_critic_file.close()
+        with open(self.lost_hist_critic_file_path, 'a') as lost_hist_critic_file:
+            for l in self.lost_hist_critic:
+                lost_hist_critic_file.write(str(l) + ' ')
         del self.lost_hist_critic[:]
 
-        scores_file = open(self.scores_file_path, 'a')
-        for s in self.scores:
-            scores_file.write(str(s) + ' ')
-        scores_file.close()
-        del self.scores[:]
+        with open(self.score_every_episode_file_path, 'a') as score_every_episode_file:
+            for s in self.score_every_episode:
+                score_every_episode_file.write(str(s) + ' ')
+        del self.score_every_episode[:]
 
-        rewards_file = open(self.rewards_file_path, 'a')
-        for r in self.rewards:
-            rewards_file.write(str(r) + ' ')
-        rewards_file.close()
-        del self.rewards[:]
+        with open(self.time_steps_when_episode_end_file_path, 'a') as time_step_when_episode_end_file:
+            for t in self.time_steps_when_episode_end:
+                time_step_when_episode_end_file.write(str(t) + ' ')
+        del self.time_steps_when_episode_end[:]
+
+        with open(self.reward_every_time_step_file_path, 'a') as reward_every_time_step_file:
+            for r in self.reward_every_time_step:
+                reward_every_time_step_file.write(str(r) + ' ')
+        del self.reward_every_time_step[:]
+
+        with open(self.q_target_critic_file_path, 'a') as q_target_critic_file:
+            for q in self.q_target_critic_list:
+                q_target_critic_file.write(str(q) + ' ')
+        del self.q_target_critic_list[:]
 
 
-    def get_lsr_from_file(self):
-        scores_file = open(self.scores_file_path, 'r')
-        scores_str = scores_file.readline().split(" ")
-        scores_str = scores_str[0:-1]
-        scores = list(map(eval, scores_str))
-        scores_file.close()
+    def _get_loss_score_timestep_reward_qtarget_from_file(self):
+        with open(self.lost_hist_actor_file_path, 'r') as lost_hist_file:
+            lost_hist_list_str = lost_hist_file.readline().split(" ")
+            lost_hist_list_str = lost_hist_list_str[0:-1]
+            loss_a = list(map(eval, lost_hist_list_str))
 
-        lost_hist_actor_file = open(self.lost_hist_actor_file_path, 'r')
-        lost_hist_actor_list_str = lost_hist_actor_file.readline().split(" ")
-        lost_hist_actor_list_str = lost_hist_actor_list_str[0:-1]
-        lost_hist_actor = list(map(eval, lost_hist_actor_list_str))
-        lost_hist_actor_file.close()
+        with open(self.lost_hist_critic_file_path, 'r') as lost_hist_file:
+            lost_hist_list_str = lost_hist_file.readline().split(" ")
+            lost_hist_list_str = lost_hist_list_str[0:-1]
+            loss_c = list(map(eval, lost_hist_list_str))
 
-        lost_hist_critic_file = open(self.lost_hist_critic_file_path, 'r')
-        lost_hist_critic_list_str = lost_hist_critic_file.readline().split(" ")
-        lost_hist_critic_list_str = lost_hist_critic_list_str[0:-1]
-        lost_hist_critic = list(map(eval, lost_hist_critic_list_str))
-        lost_hist_critic_file.close()
+        with open(self.score_every_episode_file_path, 'r') as score_every_episode_file:
+            scores_str = score_every_episode_file.readline().split(" ")
+            scores_str = scores_str[0:-1]
+            scores = list(map(eval, scores_str))
 
-        rewards_file = open(self.rewards_file_path, 'r')
-        rewards_str = rewards_file.readline().split(" ")
-        rewards_str = rewards_str[0:-1]
-        rewards = list(map(eval, rewards_str))
-        rewards_file.close()
+        with open(self.time_steps_when_episode_end_file_path, 'r') as time_step_when_episode_end_file:
+            time_step_when_episode_end_str = time_step_when_episode_end_file.readline().split(" ")
+            time_step_when_episode_end_str = time_step_when_episode_end_str[0:-1]
+            time_step_when_episode_end = list(map(eval, time_step_when_episode_end_str))
 
-        return scores, lost_hist_actor, lost_hist_critic, rewards
+        with open(self.reward_every_time_step_file_path, 'r') as reward_every_time_step_file:
+            reward_every_time_step_str = reward_every_time_step_file.readline().split(" ")
+            reward_every_time_step_str = reward_every_time_step_str[0:-1]
+            reward_every_time_step = list(map(eval, reward_every_time_step_str))
+
+        with open(self.q_target_critic_file_path, 'r') as q_target_file:
+            q_target_str = q_target_file.readline()
+            q_target_str = q_target_str.replace('[', '').replace(']', '').replace(',', '')
+            q_target_str = q_target_str.split(' ')[0:-1]
+            q_target = list(map(eval, q_target_str))
+
+        return loss_a, loss_c, scores, time_step_when_episode_end, reward_every_time_step, q_target
